@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "31245559081",
+    "project_id": "procrastinator-12701",
+    "storage_bucket": "procrastinator-12701.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:31245559081:android:a30c4238e8a6dc3ea2c338",
+        "android_client_info": {
+          "package_name": "com.sinc.procrastinator"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "31245559081-sugau8lqtbvp3mqc8rka2g6d20ra2eh6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sinc.procrastinator",
+            "certificate_hash": "de3017ebcbfdaa9e2d90163053fa4a4267073a22"
+          }
+        },
+        {
+          "client_id": "31245559081-i1mjcihhc5fr6edobt1vdh00um0ve0ra.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyABIPPpwiHGYiUffn7VkjT4zmkeHUj3jyw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "31245559081-i1mjcihhc5fr6edobt1vdh00um0ve0ra.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
