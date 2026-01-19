@@ -46,3 +46,15 @@ app.*.map.json
 .vscode/launch.json
 lib/env/secrets.g.dart
 lib/env/.env
+# === S.INC PRODUCTION SECURITY VAULT ===
+# Private signing keys (Must NEVER be on GitHub)
+*.jks
+*.keystore
+*.p12
+key.properties
+
+# Firebase Configuration (Contains your API keys)
+**/google-services.json
+
+# Local Environment Secrets
+.env

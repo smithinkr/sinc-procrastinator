@@ -37,7 +37,7 @@ class NotificationService {
 
     final androidPlugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     
-    // Explicitly create channels with MAX importance to ensure visibility
+    // 1. Explicitly create channels with MAX importance
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
         _channelIdDaily,
@@ -55,6 +55,26 @@ class NotificationService {
         playSound: true,
       ),
     );
+
+    // 2. S.INC PROACTIVE SCHEDULING (Updated for SharedPreferences/Future)
+    // This solves the 'Default 7AM not working' bug by triggering 
+    // updateNotifications immediately upon service initialization.
+    try {
+      // CRITICAL FIX: Since your StorageService now uses SharedPreferences,
+      // we MUST 'await' these calls or the scheduler will crash.
+      final int savedHour = await StorageService.getBriefHour() ?? 7;
+      final int savedMinute = await StorageService.getBriefMinute() ?? 0;
+
+      // Note: This also uses 'await' to ensure the schedule is locked into Android
+      await updateNotifications(
+        briefHour: savedHour, 
+        briefMinute: savedMinute,
+      );
+      
+      L.d("SYSTEM: Notification Service Auto-Initialized at $savedHour:${savedMinute.toString().padLeft(2, '0')}");
+    } catch (e) {
+      L.d("SYSTEM WARNING: Proactive scheduling failed during init: $e");
+    }
   }
 
   /// REFRESH LOGIC: Loads tasks from storage if they aren't provided (for SettingsPage)

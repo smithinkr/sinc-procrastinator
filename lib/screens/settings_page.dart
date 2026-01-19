@@ -170,6 +170,43 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           
           const SizedBox(height: 32),
+          // --- INTERFACE SECTION ---
+          _buildSectionTitle("INTERFACE", isDark),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: isDark ? Colors.white12 : Colors.grey[200]!),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.vignette_outlined, color: isDark ? Colors.white70 : Colors.indigo),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Home Screen HUD", 
+                          style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
+                        Text("Show 'Today at a Glance'", 
+                          style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.grey[500])),
+                      ],
+                    ),
+                  ],
+                ),
+                Switch(
+                  value: settings.isHudEnabled,
+                  activeTrackColor: Colors.indigo,
+                  onChanged: (val) => settings.toggleHud(val),
+                )
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
 
           // --- APPEARANCE SECTION ---
           _buildSectionTitle("APPEARANCE", isDark),

@@ -56,22 +56,48 @@ import 'package:procrastinator/utils/logger.dart';
       lastSyncedAt = null; // Reset on logout
     }
 
-    // 3. Updated Push with Timestamp tracking
-    Future<void> syncTasksToCloud(List<Task> tasks) async {
+    // 3. SECURE PUSH: Reconciles local and cloud data to prevent wipes
+    Future<void> syncTasksToCloud(List<Task> localTasks) async {
       final User? user = _auth.currentUser;
       if (user == null) return;
 
       try {
-        List<Map<String, dynamic>> taskData = tasks.map((t) => t.toMap()).toList();
+        // Step A: Fetch the current state of the Cloud Vault
+        var doc = await _db.collection('users').doc(user.uid).get();
+        List<Task> cloudTasks = [];
+        
+        if (doc.exists && doc.data()?['tasks'] != null) {
+          List<dynamic> cloudList = doc.data()!['tasks'];
+          cloudTasks = cloudList.map((item) => Task.fromJson(item)).toList();
+        }
+
+        // Step B: Business Reconciliation (Merge based on Task ID)
+        // This ensures if Samsung has Task A and OnePlus has Task B, 
+        // the result is [Task A, Task B], not one deleting the other.
+        final Map<String, Task> reconciledMap = {};
+        
+        // Load cloud tasks first
+        for (var t in cloudTasks) {
+          reconciledMap[t.id] = t;
+        }
+        
+        // Overwrite/Add with local tasks (treating local as the newest truth)
+        for (var t in localTasks) {
+          reconciledMap[t.id] = t;
+        }
+
+        List<Map<String, dynamic>> finalTaskData = 
+            reconciledMap.values.map((t) => t.toMap()).toList();
+
+        // Step C: Push the finalized ledger
         await _db.collection('users').doc(user.uid).set({
           'email': user.email,
           'lastSync': FieldValue.serverTimestamp(),
-          'tasks': taskData,
+          'tasks': finalTaskData,
         }, SetOptions(merge: true));
 
-        // Update the local timestamp on success
         lastSyncedAt = DateTime.now();
-        L.d("Cloud Sync Successful at $lastSyncedAt");
+        L.d("Cloud Reconciled Successfully at $lastSyncedAt");
       } catch (e) {
         L.d("Cloud Sync Failed: $e");
       }

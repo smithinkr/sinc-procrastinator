@@ -872,6 +872,7 @@ Widget _buildPeekAction(IconData icon, String label, VoidCallback onTap,
   Widget build(BuildContext context) {
     final settings = Provider.of<SettingsService>(context);
     final Color themeColor = _getThemeColor(settings.themeColor);
+  
 
     final activeTasks = _tasks.where((t) {
       if (t.isCompleted) return false;

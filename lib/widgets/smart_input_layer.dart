@@ -39,6 +39,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   bool _isListening = false;
   bool _isInputActive = false;
   bool _showHint = true;
+  bool _showSlogan = true; // S.INC Brand state
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -49,6 +50,10 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
     Timer(const Duration(seconds: 5), () {
       if (mounted) setState(() => _showHint = false);
     });
+
+    Timer(const Duration(seconds: 4), () {
+    if (mounted) setState(() => _showSlogan = false);
+  });
 
     _pulseController = AnimationController(
       vsync: this,
@@ -207,82 +212,100 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
     // Capture keyboard height to push the UI up
     final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
     final todayTasks = _getTodayTasks(widget.allTasks);
+    final settings = Provider.of<SettingsService>(context); 
 
   
 
     return Stack(
       children: [
 
-        // --- Combined At-a-Glance Dashboard & Slogan ---
-// --- Combined Watermark Dashboard & Slogan ---
-AnimatedPositioned(
-  duration: const Duration(milliseconds: 400),
-  curve: Curves.easeOutCubic,
-  // 1. Lower the start point slightly to clear header buttons
-  top: MediaQuery.of(context).size.height * 0.20, 
-  left: 0, right: 0,
-  child: AnimatedOpacity(
-    opacity: _isInputActive ? 0.0 : 1.0,
-    duration: const Duration(milliseconds: 300),
-    child: Column(
-      children: [
-        // 2. TASK AT-A-GLANCE (The HUD Container)
-        // We've expanded this height to give your list more room
-        SizedBox(
-          height: MediaQuery.of(context).size.height * 0.30, 
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: Column(
-              children: [
-                if (todayTasks.isNotEmpty) ...[
-                  Text(
-                    "TODAY",
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w300,
-                      letterSpacing: 5.0,
-                      color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.15),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  ...todayTasks.map((task) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 40),
-                    child: Text(
-                      task.title.toLowerCase(),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 22, // Slightly larger tasks for the "Watermark" HUD
-                        fontWeight: FontWeight.w200,
-                        color: isDarkMode ? Colors.white.withValues(alpha: 0.4) : Colors.black.withValues(alpha: 0.25),
-                        letterSpacing: 1.2,
+ // --- Combined Watermark Dashboard & Slogan ---
+if (settings.isHudEnabled)
+  AnimatedPositioned(
+    duration: const Duration(milliseconds: 400),
+    curve: Curves.easeOutCubic,
+    top: MediaQuery.of(context).size.height * 0.20, 
+    left: 0, right: 0,
+    child: AnimatedOpacity(
+      opacity: _isInputActive ? 0.0 : 1.0,
+      duration: const Duration(milliseconds: 300),
+      child: Column(
+        children: [
+          // 1. TASK AT-A-GLANCE (Scrollable Container)
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.30, 
+            child: GestureDetector(
+              onHorizontalDragStart: (_) {}, // Pass horizontal swipes to PageView
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  children: [
+                    if (todayTasks.isNotEmpty) ...[
+                      Text(
+                        "TODAY",
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w300,
+                          letterSpacing: 5.0,
+                          color: isDarkMode 
+                              ? Colors.white.withValues(alpha: 0.2) 
+                              : Colors.black.withValues(alpha: 0.15),
+                        ),
                       ),
-                    ),
-                  )),
-                ] else
-                   const SizedBox(height: 50), 
-              ],
+                      const SizedBox(height: 20),
+                      ...todayTasks.map((task) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 40),
+                        child: Text(
+                          task.title.toLowerCase(),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w200,
+                            color: isDarkMode 
+                                ? Colors.white.withValues(alpha: 0.4) 
+                                : Colors.black.withValues(alpha: 0.25),
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      )),
+                    ] else
+                       const SizedBox(height: 50), 
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
 
-        // 3. THE GAP
-        const SizedBox(height: 40),
-
-        // 4. THE SLOGAN (Moved downward and slightly larger)
-        Text(
-          "let's procrastinate in style",
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 20, // Increased from 14/18 for better brand presence
-            fontWeight: FontWeight.w300,
-            color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.12),
-            letterSpacing: 2.5, // Wider spacing for that premium aesthetic
+          // 2. THE GAP (Now correctly inside the children list)
+          AnimatedOpacity(
+            opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 800),
+            child: const SizedBox(height: 40),
           ),
-        ),
-      ],
+
+          // 3. THE SLOGAN (Now correctly inside the children list)
+          AnimatedOpacity(
+            opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 800), // Smooth fade out
+            child: _showSlogan 
+              ? Text(
+                  "let's procrastinate in style",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w300,
+                    color: isDarkMode 
+                        ? Colors.white.withValues(alpha: 0.2) 
+                        : Colors.black.withValues(alpha: 0.12),
+                    letterSpacing: 2.5,
+                  ),
+                )
+              : const SizedBox.shrink(),
+          ),
+        ], // <--- FIXED: Closes the children list
+      ), // <--- FIXED: Closes the Column
     ),
   ),
-),
         // Background Dimmer
         if (_isInputActive)
           Positioned.fill(

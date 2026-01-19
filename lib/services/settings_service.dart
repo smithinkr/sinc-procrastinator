@@ -11,6 +11,7 @@ class SettingsService with ChangeNotifier {
   bool _isAiEnabled = false; 
   int _briefHour = 7; 
   int _briefMinute = 0;
+  bool _isHudEnabled = true; // Default to visible
 
   // --- GETTERS ---
   String get themeColor => _themeColor;
@@ -19,6 +20,7 @@ class SettingsService with ChangeNotifier {
   bool get isAiEnabled => _isAiEnabled;
   int get briefHour => _briefHour;
   int get briefMinute => _briefMinute;
+  bool get isHudEnabled => _isHudEnabled;
 
   /// CRITICAL CHANGE: We no longer store the API key in a String variable.
   /// This prevents the key from being captured in a memory dump.
@@ -40,6 +42,7 @@ class SettingsService with ChangeNotifier {
     _isAiEnabled = prefs.getBool('isAiEnabled') ?? false;
     _briefHour = prefs.getInt('briefHour') ?? 7;
     _briefMinute = prefs.getInt('briefMinute') ?? 0;
+    _isHudEnabled = prefs.getBool('isHudEnabled') ?? true; // Load HUD preference
 
     // Check if a key exists to determine if AI features should be visible,
     // but DO NOT store the key itself in this class.
@@ -73,6 +76,13 @@ class SettingsService with ChangeNotifier {
   }
 
   // --- STANDARD UPDATERS ---
+  Future<void> toggleHud(bool isEnabled) async {
+    _isHudEnabled = isEnabled;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isHudEnabled', isEnabled);
+    L.d("SYSTEM: HUD Visibility toggled to $isEnabled");
+  }
 
   Future<void> toggleAiFeatures(bool isEnabled) async {
     _isAiEnabled = isEnabled;

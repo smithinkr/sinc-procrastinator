@@ -9,9 +9,34 @@ import 'security_service.dart';
 class StorageService {
   // Using a new key for V2 to avoid format conflicts with old CBC data
   static const String _tasksKey = 'procrastinator_tasks_secure_v2';
-  static const String _masterKeyName = 'task_encryption_master_key_v2';
+  static const String _masterKeyName = 'task_encryption_master_key_v2';   
 
   /// --- INTERNAL HELPERS ---
+  static Future<int?> getBriefHour() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('brief_hour'); // Returns null if never set
+  }
+
+  static Future<int?> getBriefMinute() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('brief_minute'); // Returns null if never set
+  }
+
+  static Future<void> saveBriefTime(int hour, int minute) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('brief_hour', hour);
+    await prefs.setInt('brief_minute', minute);
+  }
+  static Future<bool> isHudEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    // Default to true so new users see the HUD immediately
+    return prefs.getBool('show_hud') ?? true; 
+  }
+
+  static Future<void> setHudEnabled(bool visible) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_hud', visible);
+  }
 
   static Future<encrypt.Key> _getEncryptionKey() async {
     String? existingKey = await SecurityService.getSecret(_masterKeyName);
