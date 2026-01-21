@@ -1,8 +1,12 @@
+import 'dart:async'; // MANDATORY: For Beta Listener
 import 'package:flutter/foundation.dart';
 import 'package:procrastinator/utils/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // MANDATORY: For Beta Check
 
 import 'security_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+ // Ensure this is there too
 
 class SettingsService with ChangeNotifier {
   String _themeColor = 'indigo';
@@ -11,7 +15,30 @@ class SettingsService with ChangeNotifier {
   bool _isAiEnabled = false; 
   int _briefHour = 7; 
   int _briefMinute = 0;
-  bool _isHudEnabled = true; // Default to visible
+  bool _isHudEnabled = true;
+  bool _isBetaApproved = false;
+  
+  
+  // ADD THIS CONSTRUCTOR:
+SettingsService() {
+  loadSettings();
+
+  // THE REACTIVE FIX: Wait for the Auth state to be "Solid"
+  FirebaseAuth.instance.authStateChanges().listen((user) {
+    if (user != null) {
+      L.d("👤 IDENTITY: User confirmed (${user.uid}). Syncing Beta Status...");
+      startBetaStatusListener(); // This flips your UI to 'Verified' instantly
+    } else {
+      L.d("👤 IDENTITY: No user found. Features locked.");
+      stopBetaListener();
+    }
+  });
+}
+
+  // --- NEW BETA STATE (MANDATORY) ---
+  
+ 
+  StreamSubscription<DocumentSnapshot>? _betaListener;
 
   // --- GETTERS ---
   String get themeColor => _themeColor;
@@ -21,9 +48,45 @@ class SettingsService with ChangeNotifier {
   int get briefHour => _briefHour;
   int get briefMinute => _briefMinute;
   bool get isHudEnabled => _isHudEnabled;
+  bool get isBetaApproved => _isBetaApproved; // FIXES HOMESCREEN ERROR
+
+  // --- NEW BETA LISTENER (MANDATORY) ---
+
+  void startBetaStatusListener() {
+  stopBetaListener(); // Clean up any old ones first
+
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+
+  // Catch the stream here!
+  _betaListener = FirebaseFirestore.instance 
+      .collection('users')
+      .doc(user.uid)
+      .snapshots()
+      .listen((snapshot) {
+        if (snapshot.exists && snapshot.data() != null) {
+          final data = snapshot.data() as Map<String, dynamic>;
+          _isBetaApproved = data['isBetaApproved'] ?? false;
+          // LOGIC: If they are approved, we don't care about the pending list anymore!
+    if (_isBetaApproved) {
+      L.d("✅ S.INC: User is officially approved. Clearing UI noise.");
+    }
+          notifyListeners();
+          
+          // Use your custom logger 'L' instead of print
+          L.d("📡 S.INC CLOUD: Beta Status -> $_isBetaApproved");
+        }
+      });
+}
+
+  void stopBetaListener() {
+    _betaListener?.cancel();
+    _betaListener = null;
+    _isBetaApproved = false;
+    notifyListeners();
+  }
 
   /// CRITICAL CHANGE: We no longer store the API key in a String variable.
-  /// This prevents the key from being captured in a memory dump.
   Future<String> getSecureApiKey() async {
     try {
       return await SecurityService.getSecret('gemini_api_key') ?? '';
@@ -42,32 +105,23 @@ class SettingsService with ChangeNotifier {
     _isAiEnabled = prefs.getBool('isAiEnabled') ?? false;
     _briefHour = prefs.getInt('briefHour') ?? 7;
     _briefMinute = prefs.getInt('briefMinute') ?? 0;
-    _isHudEnabled = prefs.getBool('isHudEnabled') ?? true; // Load HUD preference
+    _isHudEnabled = prefs.getBool('isHudEnabled') ?? true;
 
-    // Check if a key exists to determine if AI features should be visible,
-    // but DO NOT store the key itself in this class.
     final hasKey = (await SecurityService.getSecret('gemini_api_key'))?.isNotEmpty ?? false;
-    
     if (hasKey) {
       _isAiEnabled = true;
     }
-    
     notifyListeners();
   }
+  
 
-  /// Use this to initialize the app with the key from your .env or ENVied class
   Future<void> initializeVaultedKey(String keyFromConfig) async {
     if (keyFromConfig.isEmpty) return;
-
     try {
-      // Save to hardware-backed storage
       await SecurityService.saveSecret('gemini_api_key', keyFromConfig);
       _isAiEnabled = true;
-      
-      // Cleanup: Ensure the key isn't sitting in insecure prefs from old versions
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('gemini_api_key'); 
-      
       notifyListeners();
       L.d("✅ API Key successfully vaulted and removed from RAM path.");
     } catch (e) {
@@ -75,7 +129,7 @@ class SettingsService with ChangeNotifier {
     }
   }
 
-  // --- STANDARD UPDATERS ---
+  // --- STANDARD UPDATERS (KEEPING YOUR LOGS INTACT) ---
   Future<void> toggleHud(bool isEnabled) async {
     _isHudEnabled = isEnabled;
     notifyListeners();
@@ -114,5 +168,12 @@ class SettingsService with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('themeColor', color);
     await prefs.setBool('isDarkMode', isDark);
+  }
+
+  // CLEANUP
+  @override
+  void dispose() {
+    _betaListener?.cancel();
+    super.dispose();
   }
 }

@@ -11,16 +11,19 @@ import 'package:flutter/services.dart';
 import '../services/settings_service.dart';
 import 'package:procrastinator/widgets/custom_text_controller.dart';
 import '../models/task_model.dart';
+import 'package:procrastinator/utils/logger.dart';
 
 class SmartInputLayer extends StatefulWidget {
   final List<Task> allTasks;
   final Function(dynamic) onTaskCreated;
   final bool isVisible;
+  final bool isAiLoading;
   const SmartInputLayer({
     super.key, 
     required this.allTasks,
     required this.onTaskCreated,
     this.isVisible = false,
+    required this.isAiLoading,
   });
 
   
@@ -34,6 +37,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   final stt.SpeechToText _speech = stt.SpeechToText();
   final AudioRecorder _audioRecorder = AudioRecorder(); 
   final FocusNode _focusNode = FocusNode();
+  
   
   File? _recordedFile;
   bool _isListening = false;
@@ -179,15 +183,34 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   }
 
   void _submitTask() {
-    if (_textController.text.trim().isNotEmpty) {
-      widget.onTaskCreated(_textController.text);
+  final String text = _textController.text.trim();
+  
+  // 1. THE DEADBOLT (Security Guard)
+  // Check widget.isAiLoading to prevent duplicate triggers
+  if (text.isEmpty || widget.isAiLoading) return;
+  _focusNode.unfocus();
+  SystemChannels.textInput.invokeMethod('TextInput.hide');
+
+  // 2. TRIGGER THE AI IMMEDIATELY
+  // We do this while the text and widget are still fully "active"
+  L.d("📡 S.INC: Handing baton to AI for: $text");
+  widget.onTaskCreated(text);
+
+  // 3. UI CLEANUP (With a small delay)
+  // We wait 100ms to ensure the async 'onTaskCreated' is firmly in the background
+  Future.delayed(const Duration(milliseconds: 100), () {
+    if (!mounted) return;
+
+    // Disconnect the system focus to stop Autofill loops
+    _focusNode.unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
+    
+    setState(() {
       _textController.clear();
-      if (mounted) {
-        setState(() => _isInputActive = false);
-        FocusScope.of(context).unfocus();
-      }
-    }
-  }
+      _isInputActive = false;
+    });
+  });
+}
 
   void _activateInputMode() {
     setState(() {
@@ -199,11 +222,21 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
     });
   }
 
-  void _closeInputMode() {
-    if (_textController.text.isEmpty) {
-      setState(() => _isInputActive = false);
-    }
-    FocusScope.of(context).unfocus();
+void _closeInputMode() {
+    setState(() {
+      // We force the input to inactive regardless of text 
+      // if we are closing the mode/moving away.
+      _isInputActive = false;
+    });
+
+    // 1. Remove focus from the current node
+    _focusNode.unfocus();
+
+    // 2. Force the FocusScope to a 'neutral' node (The Vacuum Fix)
+    FocusScope.of(context).requestFocus(FocusNode());
+
+    // 3. Send a direct command to the Android/iOS system to hide the tray
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
   }
 
   @override
@@ -350,17 +383,33 @@ if (settings.isHudEnabled)
                   ],
                 ),
                 child: TextField(
-                  controller: _textController,
-                  focusNode: _focusNode,
-                  maxLines: 4,
-                  textInputAction: TextInputAction.done,
-                  style: TextStyle(fontSize: 18, color: isDarkMode ? Colors.white : Colors.black87),
-                  decoration: const InputDecoration(
-                    hintText: "What do you need to do?",
-                    border: InputBorder.none,
-                  ),
-                  onSubmitted: (_) => _submitTask(),
-                ),
+  controller: _textController,
+  focusNode: _focusNode,
+  maxLines: 4,
+ autofillHints: null, 
+  enableSuggestions: false, 
+  autocorrect: false,
+ textInputAction: TextInputAction.newline, 
+  onSubmitted: null, // Physically kill the keyboard submission path
+  style: TextStyle(
+    fontSize: 18, 
+    color: isDarkMode ? Colors.white : Colors.black87
+  ),
+  decoration: InputDecoration( // 🚨 Ensure 'const' is NOT before this
+    hintText: "What do you need to do?",
+    hintStyle: const TextStyle(color: Colors.white38), // Preserves your hint style
+    border: InputBorder.none,
+    // 3. The "Manual Trigger" fix
+    suffixIcon: IconButton(
+      icon: const Icon(Icons.send_rounded, color: Colors.indigo),
+      onPressed: () {
+        if (_textController.text.trim().isNotEmpty) {
+          _submitTask(); // This now only fires when physically tapped
+        }
+      },
+    ),
+  ),
+),
               ),
             ),
           ),

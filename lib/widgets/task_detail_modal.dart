@@ -1,6 +1,10 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../models/task_model.dart';
+import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/settings_service.dart';
+
 
 class TaskDetailModal extends StatefulWidget {
   final Task task;
@@ -148,6 +152,7 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
       _isEditing = !_isEditing;
     });
   }
+  
 
   // Helper to lazily create subtask controllers
   TextEditingController getSubtaskController(String id, String initialText) {
@@ -176,13 +181,16 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
               onTap: () {}, // Prevent closing when clicking inside modal
               child: Container(
                 width: MediaQuery.of(context).size.width * 0.9,
-                height: MediaQuery.of(context).size.height * 0.7,
+                constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.8, // Maximum cap
+            ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(32),
                   boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 20)],
                 ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min, // 🔥 FIX 2: Tell Column to hug content
                   children: [
                     // --- HEADER ---
                     Container(
@@ -244,9 +252,10 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
                     ),
                     
                     // --- BODY ---
-                    Expanded(
+                    Flexible(
                       child: ListView(
-                        padding: const EdgeInsets.all(24),
+                        shrinkWrap: true, // 🔥 FIX 4: Tell ListView to only take needed space
+                    padding: const EdgeInsets.all(24),
                         children: [
                           // TITLE ROW
                           Row(
@@ -385,66 +394,101 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
                           
                           const SizedBox(height: 24),
                           
-                          // SUBTASKS
-                          if (widget.task.subtasks.isNotEmpty) ...[
-                            Text("SUBTASKS", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey[400], letterSpacing: 1)),
-                            const SizedBox(height: 12),
-                            ...widget.task.subtasks.map((st) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start, 
-                                children: [
-                                  // Checkbox
-                                  if (!_isEditing)
-                                    InkWell(
-                                      onTap: widget.isPreview ? null : () => widget.onSubtaskToggle(st.id),
-                                      child: Container(
-                                        margin: const EdgeInsets.only(top: 2), 
-                                        width: 20, height: 20,
-                                        decoration: BoxDecoration(
-                                          color: st.isCompleted ? Colors.indigo : Colors.white,
-                                          border: Border.all(color: st.isCompleted ? Colors.indigo : Colors.grey[300]!),
-                                          borderRadius: BorderRadius.circular(6)
-                                        ),
-                                        child: st.isCompleted ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
-                                      ),
-                                    ),
-                                  
-                                  const SizedBox(width: 12),
-                                  
-                                  // Text or Input
-                                  Expanded(
-                                    child: _isEditing
-                                      ? TextField(
-                                          controller: getSubtaskController(st.id, st.title),
-                                          textCapitalization: TextCapitalization.sentences,
-                                          decoration: const InputDecoration(
-                                            isDense: true,
-                                            border: UnderlineInputBorder(),
-                                          ),
-                                        )
-                                      : InkWell(
-                                          onTap: widget.isPreview ? null : () => widget.onSubtaskToggle(st.id),
-                                          child: Text(
-                                            st.title, 
-                                            style: TextStyle(
-                                              color: st.isCompleted ? Colors.grey[400] : Colors.black87,
-                                              decoration: st.isCompleted ? TextDecoration.lineThrough : null,
-                                              height: 1.3,
-                                            ),
-                                          ),
-                                        ),
-                                  )
-                                ],
-                              ),
-                            )),
-                          ],
+                          // --- SUBTASKS OR SMART NUDGE ---
+if (widget.task.subtasks.isNotEmpty) ...[
+  const Text(
+    "SUBTASKS", 
+    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1),
+  ),
+  const SizedBox(height: 12),
+  ...widget.task.subtasks.map((st) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start, 
+      children: [
+        // 1. CHECKBOX (Visible only when not editing)
+        if (!_isEditing)
+          InkWell(
+            onTap: widget.isPreview ? null : () => widget.onSubtaskToggle(st.id),
+            child: Container(
+              margin: const EdgeInsets.only(top: 2), 
+              width: 20, height: 20,
+              decoration: BoxDecoration(
+                color: st.isCompleted ? Colors.indigo : Colors.white,
+                border: Border.all(color: st.isCompleted ? Colors.indigo : Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(6)
+              ),
+              child: st.isCompleted ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
+            ),
+          ),
+        
+        const SizedBox(width: 12),
 
-                          const SizedBox(height: 30),
-                        ],
-                      ),
-                    ),
+        // 2. TEXT OR INPUT (This is where 'st' was throwing the error)
+        Expanded(
+          child: _isEditing
+            ? TextField(
+                controller: getSubtaskController(st.id, st.title),
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  border: UnderlineInputBorder(),
+                ),
+              )
+            : InkWell(
+                onTap: widget.isPreview ? null : () => widget.onSubtaskToggle(st.id),
+                child: Text(
+                  st.title, 
+                  style: TextStyle(
+                    color: st.isCompleted ? Colors.grey[400] : Colors.black87,
+                    decoration: st.isCompleted ? TextDecoration.lineThrough : null,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+        ),
+      ],
+    ),
+  )), // <--- Correctly closing the map loop here
+] else ...[
+  // 3. THE PASSIVE SMART NUDGE (Appears only if list is empty)
+Consumer<SettingsService>(
+  builder: (context, settings, child) {
+    final user = FirebaseAuth.instance.currentUser;
+    // Hide completely if user is already approved (Premium Experience)
+    if (user != null && settings.isBetaApproved) return const SizedBox.shrink();
 
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      decoration: BoxDecoration(
+        // Much subtler grey background instead of indigo
+        color: Colors.grey.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          // Muted icon color
+          Icon(Icons.auto_awesome, size: 20, color: Colors.grey[400]),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              // The new passive copy
+              "Want smarter tasks? You can enable AI intelligence in Settings.",
+              style: TextStyle(
+                fontSize: 13, 
+                fontWeight: FontWeight.w500, 
+                color: Colors.grey[600], // Muted text color
+                height: 1.4
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  },
+),
+],
                     // --- FOOTER (ACTION BUTTONS) ---
                     Container(
                       padding: const EdgeInsets.all(24),
@@ -517,13 +561,16 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
                         ),
                     )
                   ],
-                ),
-              ),
+                ), 
+              )
+                  ]
             ),
           ),
         ),
       ),
-    );
+    )
+      )
+      );
   }
 
   // Helper for Date/Time Chips

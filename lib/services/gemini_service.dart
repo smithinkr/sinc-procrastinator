@@ -1,35 +1,61 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:uuid/uuid.dart';
-import '../models/task_model.dart';
-import 'natural_language_parser.dart'; 
-import 'dart:io';
-import '../env/secrets.dart'; // Add this line
+  import 'dart:convert';
+  import 'package:http/http.dart' as http;
+  import 'package:uuid/uuid.dart';
+  import '../models/task_model.dart';
+  import 'natural_language_parser.dart'; 
+  import 'dart:io';
+  import '../utils/logger.dart'; // This connects the 'L' to its definition
+  
 
-class GeminiService {
+  class GeminiService {
   static const String _baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-  
-  // THE ONLY KEY: This is injected at build-time from your .env
-  static final String _apiKey = Secrets.geminiApiKey;
-  
+  static String? _lastRequestHash;
+  static int _globalRequestCounter = 0;
   static DateTime? _lastRequestTime;
-  static const int _cooldownSeconds = 2;
 
-  // REMOVED: 'String vaultedKey' parameter as it is no longer needed
+  // --- LAYER 1: SECURE INJECTION ---
+  static const String _injectedKey = String.fromEnvironment('GEMINI_API_KEY');
+  
+  // --- LAYER 2: RUNTIME OBFUSCATION ---
+  static final String _vaultedKey = _scramble(_injectedKey);
+
+  // OBFUSCATION LOGIC
+  static String _scramble(String input) {
+    if (input.isEmpty) return "";
+    return base64Encode(utf8.encode(input)).split('').reversed.join();
+  }
+
+  static String _unscramble(String scrambled) {
+    if (scrambled.isEmpty) return "";
+    String reversed = scrambled.split('').reversed.join();
+    return utf8.decode(base64Decode(reversed));
+  }
+
   static Future<Task> analyzeTask(
     dynamic input, 
     double creativity, {
     Task? preParsedTask, 
   }) async {
+    // Logic like '++' and 'DateTime.now()' must live INSIDE the method
+    final int currentId = ++_globalRequestCounter;
     final now = DateTime.now();
-    if (_lastRequestTime != null && now.difference(_lastRequestTime!).inSeconds < _cooldownSeconds) {
-      throw Exception("RATE_LIMIT_COOLDOWN");
-    }
-    _lastRequestTime = now;
+    final String currentRequestHash = input.toString() + creativity.toString();
 
-    // SECURITY CHECK: Verify the injected key is actually present
-    if (_apiKey.isEmpty) {
-      throw Exception("CRITICAL_SECURITY_ERROR: API Key not injected.");
+    L.d("📡 [AI CALL]: Triggered at $now | Input Type: ${input.runtimeType}");
+
+    // --- THE ULTIMATE GUARD ---
+    if (_lastRequestHash == currentRequestHash && 
+        _lastRequestTime != null && 
+        now.difference(_lastRequestTime!).inSeconds < 5) {
+      L.d("🛡️ S.INC: Ghost-submit detected and blocked.");
+      throw Exception("DUPLICATE_REQUEST_IGNORED");
+    }
+
+    _lastRequestHash = currentRequestHash;
+    _lastRequestTime = DateTime.now();
+
+    if (_vaultedKey.isEmpty) {
+      throw Exception("S.INC_SECURITY_ERROR: API Key not injected via environment.");
     }
     
     dynamic sanitizedInput = input;
@@ -51,83 +77,107 @@ class GeminiService {
       parts.add({"text": _buildSecureTaskPrompt("User provided an audio recording.", creativity, preParsedTask: preParsedTask)});
     }
 
-    final response = await http.post(
-      url,
-      // SECURITY: Using the hidden _envKey directly in the header
-      headers: {'Content-Type': 'application/json', 'x-goog-api-key': _apiKey},
-      body: jsonEncode({
-        "contents": [{"parts": parts}],
-        "safetySettings": [
-          {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
-          {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
-          {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
-        ],
-        "generationConfig": {
-          "temperature": creativity,
-          "responseMimeType": "application/json"
-        }
-      }),
-    ).timeout(const Duration(seconds: 15));
+    try {
+      L.d("📡 [TEST #$currentId]: PHYSICALLY sending to Google now...");
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final String rawText = data['candidates'][0]['content']['parts'][0]['text'];
-      return _parseAiResponse(rawText, input is String ? input : "Audio Task");
-    } else {
-      throw Exception("SERVER_ERROR_${response.statusCode}");
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json', 
+          'x-goog-api-key': _unscramble(_vaultedKey) 
+        },
+        body: jsonEncode({
+          "contents": [{"parts": parts}],
+          "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+          ],
+          "generationConfig": {
+            "temperature": creativity,
+            "responseMimeType": "application/json"
+          }
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      L.d("✅ [TEST #$currentId]: Server responded with ${response.statusCode}");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final String rawText = data['candidates'][0]['content']['parts'][0]['text'];
+        return _parseAiResponse(rawText, input is String ? input : "Audio Task");
+      } else if (response.statusCode == 429) {
+        _lastRequestTime = DateTime.now().add(const Duration(seconds: 60));
+        L.d("🚨 S.INC: SERVER_ERROR_429 for Test #$currentId. IP Penalty Lock engaged.");
+        throw Exception("AI_BUSY_RETRY_LATER");
+      } else {
+        throw Exception("SERVER_ERROR_${response.statusCode}");
+      }
+    } catch (e) {
+      L.d("🛠️ [TEST #$currentId]: Request aborted with error: $e");
+      rethrow;
     }
   }
 
-  // --- PRIVATE HELPERS (PROMPTS AND PARSING PRESERVED) ---
-
+  // --- HELPERS (Marked STATIC to allow access from analyzeTask) ---
   static String _buildSecureTaskPrompt(String input, double creativity, {Task? preParsedTask}) {
-    final now = DateTime.now();
-    
-    String constraintBlock = "";
-    if (preParsedTask != null && (preParsedTask.dueDate.isNotEmpty || preParsedTask.priority == 'High')) {
-      constraintBlock = """
-      [SOURCE OF TRUTH - MANDATORY]
-      The local system identified these. DO NOT CHANGE:
-      - Date/Time: ${preParsedTask.dueDate}
-      - Urgent Status: ${preParsedTask.priority}
-      """;
-    }
+  final now = DateTime.now();
 
-    String complexity = creativity <= 0.3 
-        ? "LITERAL: 2-3 essential steps." 
-        : (creativity < 0.8 ? "BALANCED: 3-5 subtasks." : "COMPREHENSIVE: 5-7 subtasks.");
+  // 1. IMAGINATION GOVERNOR
+  String imaginationLevel;
+  if (creativity <= 0.3) {
+    imaginationLevel = "STRICT & LITERAL: Do not add extra steps. Focus on exact categorization.";
+  } else if (creativity <= 0.7) {
+    imaginationLevel = "BALANCED & HELPFUL: Provide logical subtasks and shopping links.";
+  } else {
+    imaginationLevel = "VISIONARY & COMPREHENSIVE: Use deep culinary/project knowledge for a full roadmap.";
+  }
 
-    return """
-      [SYSTEM ROLE]
-      You are a Professional Project Manager.
-      
-      [STRICT CATEGORY ENUM]
-      You MUST categorize the task into exactly ONE of these four. DO NOT invent new ones:
-      1. Work
-      2. Personal
-      3. Shopping
-      4. General
+  // 2. STEP COMPLEXITY (Preserved from your previous code)
+  String complexity = creativity <= 0.3 
+      ? "LITERAL: 2-3 essential steps." 
+      : (creativity < 0.8 ? "BALANCED: 3-5 subtasks." : "COMPREHENSIVE: 5-7 subtasks.");
 
-      [DATE MATH CONTEXT]
-      Reference Today: ${now.year}-${now.month}-${now.day} (Weekday: ${now.weekday})
-      - If the user says "before January ends", calculate the last day of Jan ${now.year}.
-      - If "this weekend", use Sunday.
-      - If no date is mentioned, set 'exactDate' to null. No hallucinations.
-
-      $constraintBlock
-
-      [TONE & DEPTH]
-      Professional. Complexity Level: $complexity
-
-      <USER_DATA>
-      $input
-      </USER_DATA>
-
-      [TASK]
-      Extract title and category. Generate subtasks.
-      Output STRICT JSON with: title, priority, category, dueDate (DD/MM), exactDate (YYYY-MM-DD), and hasSpecificTime (bool).
+  // 3. SOURCE OF TRUTH
+  String constraintBlock = "";
+  if (preParsedTask != null && (preParsedTask.dueDate.isNotEmpty || preParsedTask.priority == 'High')) {
+    constraintBlock = """
+    [SOURCE OF TRUTH - MANDATORY]
+    The local system identified these. DO NOT CHANGE:
+    - Date/Time: ${preParsedTask.dueDate}
+    - Urgent Status: ${preParsedTask.priority}
     """;
   }
+
+  return """
+    [SYSTEM ROLE]
+    You are an Expert Project Architect for S.INC. 
+    IMAGINATION MODE: $imaginationLevel
+
+    [STRICT CATEGORY ENUM]
+    You MUST categorize every task into exactly ONE: "Work", "Personal", "Shopping", or "General".
+    - If the input involves ingredients or stores, use "Shopping".
+    - If it involves office/emails, use "Work".
+
+    [PHASE 1: COMPLEXITY EVALUATION]
+    - If task is a "Quick Action" (e.g., "Buy milk"): Return subtasks: [].
+    - Else, use Complexity Level: $complexity
+
+    [PHASE 2: SPECIALIZED BLUEPRINTS]
+    - CULINARY: If cooking/groceries, break into "Aroma & Base", "Main Proteins/Veg", "Flavors & Spices", "Garnish & Finish".
+    - RESEARCH: For shopping, include specific search URLs in 'notes' field.
+
+    $constraintBlock
+    Reference Today: ${now.year}-${now.month}-${now.day} (Wednesday)
+
+    [USER INPUT]
+    $input
+
+    [STRICT OUTPUT FORMAT]
+    Return ONLY valid JSON with these keys: 
+    "title", "priority", "category", "dueDate", "exactDate", "subtasks" (array with title and notes).
+  """;
+}
 
   static Task _parseAiResponse(String rawText, String originalInput) {
     try {
@@ -163,10 +213,8 @@ class GeminiService {
     }
   }
 
-  // UPDATED: Morning Brief logic now also uses the hidden _envKey
   static Future<String> generateMorningBrief(List<Task> tasks) async {
-    if (_apiKey.isEmpty) return "API Key missing.";
-    // ... Logic remains the same, using _envKey ...
+    if (_vaultedKey.isEmpty) return "API Key missing.";
     return "Brief logic preserved";
   }
 }

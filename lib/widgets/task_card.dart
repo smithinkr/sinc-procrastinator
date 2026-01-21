@@ -34,25 +34,38 @@ class VisualTaskCardState extends State<VisualTaskCard> with SingleTickerProvide
   late AnimationController _shimmerController;
   late Animation<double> _shimmerAnimation;
 
-  @override
-  void initState() {
-    super.initState();
-    // Setup Shimmer Animation
-    _shimmerController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800), 
-    );
+ @override
+void initState() {
+  super.initState();
+  
+  // 1. Setup Shimmer Animation (Your existing logic)
+  _shimmerController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800), 
+  );
 
-    _shimmerAnimation = Tween<double>(begin: -1.0, end: 2.0).animate(
-      CurvedAnimation(parent: _shimmerController, curve: Curves.easeInOutSine),
-    );
+  _shimmerAnimation = Tween<double>(begin: -1.0, end: 2.0).animate(
+    CurvedAnimation(parent: _shimmerController, curve: Curves.easeInOutSine),
+  );
 
-    _shimmerController.addStatusListener((status) {
-      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
-        setState(() {}); 
-      }
-    });
-  }
+  _shimmerController.addStatusListener((status) {
+    if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+      setState(() {}); 
+    }
+  });
+
+  // 2. THE STARTER MOTOR: Trigger Woosh for New AI Tasks
+  // We use addPostFrameCallback to wait until the card is fully rendered.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Check if the task was created in the last 3 seconds
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final bool isBrandNew = (now - widget.task.createdAt) < 3000;
+
+    if (widget.task.isAiGenerated && isBrandNew) {
+      playMagicWoosh(); // This calls your haptics and the shimmer
+    }
+  });
+}
 
   @override
   void dispose() {
