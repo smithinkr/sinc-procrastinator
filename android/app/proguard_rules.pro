@@ -6,3 +6,7 @@
 -keepattributes Signature
 -keepattributes InnerClasses
 -keep class com.google.firebase.** { *; }
+# Only keep the data contract, keep everything else mangled
+-keepclassmembers class com.sinc.procrastinator.models.Task {
+    <fields>;
+}

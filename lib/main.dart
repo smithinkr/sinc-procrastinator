@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:provider/provider.dart';
 
-// 1. Remove flutter_dotenv and import your generated Env class
+
+// 1. Secrets import
 import 'env/secrets.dart'; 
 
 import 'screens/home_screen.dart';
 import 'services/notification_service.dart';
 import 'services/settings_service.dart';
-
 
 void main() async {
   // 1. Ensure Flutter is ready for native/async calls
@@ -27,13 +27,8 @@ void main() async {
   // 4. Load User Settings
   final settingsService = SettingsService();
   await settingsService.loadSettings();
-  // 2. The "Secure Tag": Initialize the S.Inc encryption vault
-
 
   // --- ELITE HARDENING STEP ---
-  // We no longer load a .env file from assets. 
-  // Instead, we pull the scrambled key from the compiled Env class 
-  // and move it into the Hardware Vault immediately.
   if (Secrets.geminiApiKey.isNotEmpty) {
     await settingsService.initializeVaultedKey(Secrets.geminiApiKey);
   }
@@ -62,6 +57,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // We use context.select to ensure MyApp only rebuilds if theme settings change,
+    // not for every single change in the settings service.
     final settings = Provider.of<SettingsService>(context);
     final primaryColor = _getThemeColor(settings.themeColor);
     
@@ -79,6 +76,11 @@ class MyApp extends StatelessWidget {
         colorSchemeSeed: primaryColor,
         useMaterial3: true,
       ),
+      
+      // 🔥 THE FINAL FIX: THE ANCHOR STRATEGY
+      // We removed the StreamBuilder from here entirely.
+      // This makes HomeScreen the "Root" that never restarts or resets.
+      // Your HomeScreen's internal initState already handles Auth logic silently.
       home: const HomeScreen(),
     );
   }

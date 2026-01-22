@@ -63,11 +63,21 @@ SettingsService() {
       .collection('users')
       .doc(user.uid)
       .snapshots()
-      .listen((snapshot) {
+      .listen((snapshot) async {
         if (snapshot.exists && snapshot.data() != null) {
           final data = snapshot.data() as Map<String, dynamic>;
           _isBetaApproved = data['isBetaApproved'] ?? false;
           // LOGIC: If they are approved, we don't care about the pending list anymore!
+    if (_isBetaApproved && !_isAiEnabled) {
+              _isAiEnabled = true;
+              
+              // Save to permanent storage so it stays ON after restart
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('isAiEnabled', true);
+              
+              L.d("🔓 S.INC: AI Features auto-unlocked for approved beta user.");
+            }
+
     if (_isBetaApproved) {
       L.d("✅ S.INC: User is officially approved. Clearing UI noise.");
     }

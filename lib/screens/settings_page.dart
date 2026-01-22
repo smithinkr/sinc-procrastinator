@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/settings_service.dart';
 import '../services/sync_service.dart';
+import 'package:procrastinator/utils/logger.dart';
+import '../services/storage_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -45,6 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) setState(() => _isRequesting = false);
     }
   }
+  
 
   @override
   Widget build(BuildContext context) {
@@ -271,6 +274,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 60),
+          _buildDangerZone(context),
         ],
       ),
     );
@@ -337,6 +341,24 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+  // 2. Add this Section to your Settings List (UI)
+Widget _buildDangerZone(BuildContext context) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Padding(
+        padding: EdgeInsets.only(left: 16, top: 24, bottom: 8),
+        child: Text("DANGER ZONE", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, letterSpacing: 1.2, fontSize: 12)),
+      ),
+      ListTile(
+        leading: const Icon(Icons.delete_forever, color: Colors.red),
+        title: const Text("Delete My Account", style: TextStyle(color: Colors.red)),
+        subtitle: const Text("Permanently erase all your S.INC data"),
+        onTap: () => _handleAccountDeletion(context),
+      ),
+    ],
+  );
+}
 
   Color _getThemeColor(String theme) {
     switch (theme.toLowerCase()) {
@@ -351,5 +373,95 @@ class _SettingsPageState extends State<SettingsPage> {
     if (val <= 0.3) return "Focused essential subtasks.";
     if (val < 0.8) return "Balanced practical steps.";
     return "Deep project analysis.";
+  }
+  // 1. THE MAIN TRIGGER
+  Future<void> _handleAccountDeletion(BuildContext context) async {
+    final confirmed = await _showConfirmationDialog(context);
+    if (!context.mounted) return; // 🔥 Add this guard here
+    if (confirmed == true) {
+      await _triggerNuclearWipe(context);
+    }
+  }
+  
+
+  // 2. THE ACTUAL DELETION ENGINE
+  Future<void> _triggerNuclearWipe(BuildContext context) async {
+    if (!context.mounted) return;
+
+    try {
+      // Show Loader
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // This now calls the re-authentication flow we added to SyncService
+      await SyncService().deleteUserAccount(); 
+      await StorageService.clearAll(); 
+
+      if (!context.mounted) return;
+      
+      // Success: Close loader and navigate back to the very start
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("S.INC: Account and data permanently erased."),
+          backgroundColor: Colors.indigo,
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.pop(context); // Close the loading spinner
+
+      // 🔥 THE FIX: If Google demands a fresh login, we show the explanation FIRST
+      if (e.toString().contains("requires-recent-login") || e.toString().contains("recent-login-required")) {
+        _showReauthExplanation(context);
+      } else {
+        L.d("🚨 Deletion Error: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  // 3. THE RE-AUTH EXPLANATION (Solves the UI Race Condition)
+  void _showReauthExplanation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Security Verification"),
+        content: const Text("Google requires you to select your account again to verify this permanent deletion."),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close this dialog first
+              _triggerNuclearWipe(context); // Now trigger the Google popup safely
+            },
+            child: const Text("VERIFY & DELETE", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 4. THE INITIAL CONFIRMATION
+  Future<bool?> _showConfirmationDialog(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Account?"),
+        content: const Text("This is permanent. All your tasks and cloud data will be erased. S.INC cannot undo this."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("CANCEL")),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true), 
+            child: const Text("DELETE EVERYTHING", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 }

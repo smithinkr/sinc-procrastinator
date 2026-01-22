@@ -21,7 +21,6 @@
   import '../services/sync_service.dart';
   import 'dart:async';
  
-  import 'package:cloud_firestore/cloud_firestore.dart';
 
   class HomeScreen extends StatefulWidget {
     const HomeScreen({super.key});
@@ -51,10 +50,13 @@
     final List<Task> _tasks = [];
     int _aiCooldownSeconds = 0;
     Timer? _cooldownTimer;
+    Timer? _deleteDebounceTimer;
+    
 
     double _drawerDragOffset = 0.0;
     final double _maxDrawerWidth = 140.0;
     String _selectedCategory = 'All';
+    String? _currentUid; // Track the current user ID
 
     Task? _expandedTask;
     Task? _previewTask;
@@ -109,10 +111,13 @@
       
       // AUTH AUDITOR: Immediately refreshes tasks when user logs in/out
       _authListener = FirebaseAuth.instance.authStateChanges().listen((user) {
-        if (mounted) {
-          L.d("☁️ S.INC: Auth State Changed. Refreshing Ledger...");
-          _loadData(); 
-        }
+        if (user?.uid != _currentUid) {
+      _currentUid = user?.uid; 
+      if (mounted) {
+        L.d("☁️ S.INC: Identity Changed to ${user?.email}. Refreshing Ledger...");
+        _loadData(); 
+      }
+    }
       });
 
       // YOUR EXISTING CODE
@@ -217,7 +222,7 @@
       }
       // Inside _loadData() at the very end
   _updateUI(mergedTasks);
-  _saveData(); // This pushes the freshly loaded cloud tasks to the widget
+
     }
 
     /// Helper to refresh the UI safely
@@ -247,60 +252,79 @@ Widget _buildModalRow(IconData icon, String label, String value) {
 
     
 
-    void _saveData() async {
-    // 1. CAPTURE STATE (Do this first to avoid 'context' errors later)
-    final settings = Provider.of<SettingsService>(context, listen: false);
+   // 1. Add this variable at the top of your _HomeScreenState class
+bool _isSyncing = false;
+
+void _saveData({SettingsService? settings, ScaffoldMessengerState? messenger}) async {
+  if (_isSyncing) return;
+
+  // 1. CAPTURE & RECONCILE
+  final effectiveSettings = settings ?? (mounted ? Provider.of<SettingsService>(context, listen: false) : null);
+  
+  if (effectiveSettings == null) {
+    L.d("⚠️ S.INC: Save aborted - Widget unmounted before capture.");
+    return;
+  }
+
+  _isSyncing = true; 
+
+  try {
     final List<Task> taskSnapshot = List.from(_tasks); 
     final currentUser = FirebaseAuth.instance.currentUser;
 
-    // 2. LOCAL VAULT (Non-blocking)
-    StorageService.saveTasks(taskSnapshot);
+    // 2. LOCAL VAULT (Prioritized)
+    await StorageService.saveTasks(taskSnapshot);
     
-    // 3. IMMEDIATE CLOUD SYNC (The 'Right of Passage')
-    // We trigger this immediately. If logged in, it syncs; if not, it skips safely.
-    // 3. IMMEDIATE CLOUD SYNC
-  if (currentUser != null) {
-    SyncService().syncTasksToCloud(taskSnapshot).then((_) {
-      if (mounted) {
-        setState(() {}); 
-        L.d("☁️ S.INC: Cloud Handshake Successful.");
+    // 3. CLOUD SYNC (Silent Handshake)
+    if (currentUser != null) {
+      try {
+        await SyncService().syncTasksToCloud(taskSnapshot);
+        // 🔥 NO setState here. No SnackBar here. 
+        // This prevents the "jerk" and breaks the infinite loop.
+        L.d("☁️ S.INC: Cloud Ledger Updated Silently.");
+      } catch (e) {
+        L.d("🚨 S.INC Cloud Error: $e");
+        // We only show feedback on ACTUAL errors
+        if (mounted) {
+          messenger?.showSnackBar(
+            const SnackBar(content: Text("Sync delayed - saved locally")),
+          );
+        }
       }
-    }).catchError((e) {
-      L.d("🚨 Cloud Sync Error: $e");
-      return null; // The fix is here
-    });
-  }
+    }
 
-    // 4. WIDGET RECONCILIATION
-    final urgentTasks = _getUrgentTasks(taskSnapshot).where((t) => !t.isCompleted).toList();
+    // 4. BACKGROUND HUD RECONCILIATION
+    _updateBackgroundHUD(taskSnapshot, effectiveSettings);
+
+  } finally {
+    _isSyncing = false;
+  }
+}
+
+// Private helper to handle non-UI background tasks
+void _updateBackgroundHUD(List<Task> tasks, SettingsService settings) async {
+  try {
+    final urgentTasks = _getUrgentTasks(tasks).where((t) => !t.isCompleted).toList();
     String widgetContent = urgentTasks.isEmpty 
         ? "List clear. Take a breath." 
         : urgentTasks.take(3).map((t) => "• ${t.title.toLowerCase()}").join("\n");
 
-    try {
-      await HomeWidget.saveWidgetData<String>('headline_description', widgetContent);
-      await HomeWidget.saveWidgetData<String>('app_id', 'com.sinc.procrastinator');
-      await HomeWidget.updateWidget(
-        name: 'ProcrastinatorWidgetProvider',
-        androidName: 'ProcrastinatorWidgetProvider',
-        qualifiedAndroidName: 'com.sinc.procrastinator.ProcrastinatorWidgetProvider',
-      );
-      L.d("✅ S.INC: Widget HUD Updated.");
-    } catch (e) {
-      L.d("🚨 Widget Sync Error: $e");
-    }
-
-    // 5. NOTIFICATIONS (Background)
-    // 5. NOTIFICATIONS
-  NotificationService().updateNotifications(
-    allTasks: taskSnapshot,
-    briefHour: settings.briefHour, 
-    briefMinute: settings.briefMinute,
-  ).catchError((e) {
-    L.d("🚨 Notification Error: $e");
-    return null; // And the fix is here
-  });
+    await HomeWidget.saveWidgetData<String>('headline_description', widgetContent);
+    await HomeWidget.updateWidget(
+      name: 'ProcrastinatorWidgetProvider',
+      androidName: 'ProcrastinatorWidgetProvider',
+      qualifiedAndroidName: 'com.sinc.procrastinator.ProcrastinatorWidgetProvider',
+    );
+    
+    await NotificationService().updateNotifications(
+      allTasks: tasks,
+      briefHour: settings.briefHour, 
+      briefMinute: settings.briefMinute,
+    );
+  } catch (e) {
+    L.d("🚨 S.INC HUD Error: $e");
   }
+}
 
     // --- UI HELPERS ---
 
@@ -491,7 +515,7 @@ Widget _buildModalRow(IconData icon, String label, String value) {
       setState(() => _drawerDragOffset = open ? _maxDrawerWidth : 0.0);
     }
 
-   Future<void> _addTask(dynamic input) async {
+   Future<void> _addTask(dynamic input, bool useAi) async {
   // 1. INPUT VALIDATION
   if (input is String && input.trim().isEmpty) return;
   
@@ -511,7 +535,7 @@ Widget _buildModalRow(IconData icon, String label, String value) {
   Task localTruth = (input is String) 
       ? NaturalLanguageParser.parse(input) 
       : NaturalLanguageParser.parse("Voice Task");
-
+L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiEnabled}");
   // 4. THE HARD GATE: LOGGED-IN & ENABLED CHECK
   if (currentUser == null || !settings.isAiEnabled) {
     L.d("🚶 S.INC: AI Bypassed. Manual handling engaged.");
@@ -594,6 +618,8 @@ Widget _buildModalRow(IconData icon, String label, String value) {
 
     void _confirmTask() {
     if (_previewTask == null) return;
+    final settings = Provider.of<SettingsService>(context, listen: false);
+  final messenger = ScaffoldMessenger.of(context);
 
     // 1. UI UPDATE FIRST (Instant Gratification)
     setState(() {
@@ -612,7 +638,7 @@ Widget _buildModalRow(IconData icon, String label, String value) {
 
     // 2. BACKGROUND RECONCILIATION
     // We call this OUTSIDE setState because it's an async process
-    _saveData(); 
+    _saveData(settings: settings, messenger: messenger); 
     
     // 3. HAPTIC FEEDBACK (The S.Inc Touch)
     HapticFeedback.mediumImpact(); 
@@ -641,22 +667,46 @@ Widget _buildModalRow(IconData icon, String label, String value) {
   });
 }
 
-    void _deleteTask(String id) {
-      setState(() {
-        _tasks.removeWhere((t) => t.id == id);
-        _expandedTask = null;
-        _saveData(); 
-      });
+   void _deleteTask(String id) {
+  // 1. CAPTURE ASSETS
+  // We grab these before the UI potentially changes or unmounts
+  final settings = Provider.of<SettingsService>(context, listen: false);
+  final messenger = ScaffoldMessenger.of(context);
+
+  // 2. OPTIMISTIC UI UPDATE
+  // This happens instantly. No "jerk" or waiting for the cloud.
+  setState(() {
+    _tasks.removeWhere((t) => t.id == id);
+    _expandedTask = null; // Close the modal if it was open
+  });
+
+  // 3. PHYSICAL FEEDBACK
+  HapticFeedback.lightImpact(); 
+
+  // 4. DEBOUNCED PERSISTENCE
+  // We wait 1.5 seconds before syncing. If you delete another task
+  // during this window, the timer resets. This prevents "Rapid Fire" crashes.
+  _deleteDebounceTimer?.cancel();
+  _deleteDebounceTimer = Timer(const Duration(milliseconds: 1500), () {
+    if (mounted) {
+      _saveData(settings: settings, messenger: messenger);
+      L.d("🗑️ S.INC: Cloud Ledger reconciled after batch deletion.");
     }
+  });
+
+  L.d("🗑️ S.INC: Task $id removed from local UI. Sync queued...");
+}
 
     void _toggleSubtask(String taskId, String subtaskId) {
+      final settings = Provider.of<SettingsService>(context, listen: false);
+  final messenger = ScaffoldMessenger.of(context);
       setState(() {
         final taskIndex = _tasks.indexWhere((t) => t.id == taskId);
         if (taskIndex != -1) {
           final subIndex = _tasks[taskIndex].subtasks.indexWhere((s) => s.id == subtaskId);
           if (subIndex != -1) {
             _tasks[taskIndex].subtasks[subIndex].isCompleted = !_tasks[taskIndex].subtasks[subIndex].isCompleted;
-            _saveData();
+            _saveData(settings: settings, messenger: messenger);
           }
         }
       });
@@ -673,40 +723,7 @@ Widget _buildModalRow(IconData icon, String label, String value) {
       });
     }
     // --- 1. THE UNIFIED ENGINE (Surgical Handshake) ---
-Future<void> _handleBetaRequest() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
 
-  // 1. CAPTURE the messenger immediately to prevent context loss
-  final messenger = ScaffoldMessenger.of(context);
-
-  try {
-    await FirebaseFirestore.instance.collection('beta_requests').doc(user.uid).set({
-      'email': user.email,
-      'requestedAt': FieldValue.serverTimestamp(),
-      'status': 'pending', 
-      'deviceName': 'Samsung S23 FE',
-    }, SetOptions(merge: true));
-
-    // 2. THE CONFIRMATION (Visual Feedback)
-    messenger.showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white, size: 18),
-            SizedBox(width: 12),
-            Text("Request sent. S.INC is verifying your account."),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Colors.indigo,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  } catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text("Cloud Error: $e"), backgroundColor: Colors.redAccent));
-  }
-}
     
     void _showGlobalIdentityModal(BuildContext context, SettingsService settings) {
   final user = FirebaseAuth.instance.currentUser;
@@ -788,21 +805,7 @@ Future<void> _handleBetaRequest() async {
                 const SizedBox(height: 24),
 
                 // BETA ACCESS BUTTON (Hides automatically when approved)
-                if (!settings.isBetaApproved)
-                  ElevatedButton(
-                    onPressed: () {
-      Navigator.pop(context); // Close the small card
-      _handleBetaRequest();    // Trigger the silent request
-    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo.withValues(alpha: 0.1),
-                      foregroundColor: Colors.indigo,
-                      elevation: 0,
-                      minimumSize: const Size(double.infinity, 45),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text("REQUEST AI BETA ACCESS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                  ),
+                
 
                 // STATUS INDICATOR
                 const SizedBox(height: 12),
@@ -1069,7 +1072,7 @@ Positioned(
                         child: SmartInputLayer(
     key: _smartInputKey, 
     allTasks: _tasks, // <--- THE FIX: Add this line here
-    onTaskCreated: (input) => _addTask(input),
+    onTaskCreated: (input, useAi) => _addTask(input, useAi),
     isVisible: false,
     isAiLoading: _isAiLoading, 
   ),

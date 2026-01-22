@@ -87,17 +87,29 @@
           'x-goog-api-key': _unscramble(_vaultedKey) 
         },
         body: jsonEncode({
-          "contents": [{"parts": parts}],
-          "safetySettings": [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
-          ],
-          "generationConfig": {
-            "temperature": creativity,
-            "responseMimeType": "application/json"
-          }
-        }),
+  // 🔥 THE SECURITY GATE: This instruction is the "Master Law"
+  "systemInstruction": {
+  "parts": [{
+    "text": "You are the S.INC Master Architect. "
+            "CRITICAL RULE: If the user asks for recommendations, places, books, or facts, "
+            "DO NOT give generic process steps (e.g., '1. Research', '2. Filter'). "
+            "Instead, provide the ACTUAL items as subtasks (e.g. restaurant names such as, '1. Brindavan Vegetarian hotel', '2. Paragon Biryani'). "
+            "Each subtask must be a specific, actionable choice the user can check off. "
+            "Maintain the 8-10 step limit by selecting only the best recommendations."
+  }]
+},
+  "contents": [{"parts": parts}], // The user's input (now lower priority)
+  "safetySettings": [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"}, // Added for extra safety
+  ],
+  "generationConfig": {
+    "temperature": creativity,
+    "responseMimeType": "application/json"
+  }
+}),
       ).timeout(const Duration(seconds: 15));
 
       L.d("✅ [TEST #$currentId]: Server responded with ${response.statusCode}");
@@ -122,99 +134,133 @@
   // --- HELPERS (Marked STATIC to allow access from analyzeTask) ---
   static String _buildSecureTaskPrompt(String input, double creativity, {Task? preParsedTask}) {
   final now = DateTime.now();
+  _sanitizeForSecurity(input);
 
-  // 1. IMAGINATION GOVERNOR
-  String imaginationLevel;
-  if (creativity <= 0.3) {
-    imaginationLevel = "STRICT & LITERAL: Do not add extra steps. Focus on exact categorization.";
-  } else if (creativity <= 0.7) {
-    imaginationLevel = "BALANCED & HELPFUL: Provide logical subtasks and shopping links.";
-  } else {
-    imaginationLevel = "VISIONARY & COMPREHENSIVE: Use deep culinary/project knowledge for a full roadmap.";
-  }
-
-  // 2. STEP COMPLEXITY (Preserved from your previous code)
-  String complexity = creativity <= 0.3 
-      ? "LITERAL: 2-3 essential steps." 
-      : (creativity < 0.8 ? "BALANCED: 3-5 subtasks." : "COMPREHENSIVE: 5-7 subtasks.");
-
-  // 3. SOURCE OF TRUTH
-  String constraintBlock = "";
-  if (preParsedTask != null && (preParsedTask.dueDate.isNotEmpty || preParsedTask.priority == 'High')) {
-    constraintBlock = """
-    [SOURCE OF TRUTH - MANDATORY]
-    The local system identified these. DO NOT CHANGE:
-    - Date/Time: ${preParsedTask.dueDate}
-    - Urgent Status: ${preParsedTask.priority}
-    """;
-  }
+  // 1. DEPTH SCALE
+  // Instead of limiting steps, we define the "Depth" of the logic.
+  String depthInstruction = creativity <= 0.4 
+      ? "Provide 5-8 essential, high-level milestones." 
+      : "Provide 8-10 granular, sequential steps. Be exhaustive.";
 
   return """
     [SYSTEM ROLE]
-    You are an Expert Project Architect for S.INC. 
-    IMAGINATION MODE: $imaginationLevel
+    You are the S.INC Master Architect. You specialize in project decomposition and roadmap generation.
+    
+    [GOAL]
+    Take the user's input and expand it into a comprehensive project blueprint or
+    Extract specific recommendations and format them as an actionable checklist.
 
-    [STRICT CATEGORY ENUM]
-    You MUST categorize every task into exactly ONE: "Work", "Personal", "Shopping", or "General".
-    - If the input involves ingredients or stores, use "Shopping".
-    - If it involves office/emails, use "Work".
+    [FEW-SHOT EXAMPLE]
+    User: "Best books on history"
+    AI: {
+      "title": "History Reading List",
+      "subtasks": [
+        {"title": "Sapiens by Yuval Noah Harari", "notes": "A brief history of humankind."},
+        {"title": "Guns, Germs, and Steel", "notes": "Why some civilizations thrived."}
+      ]
+    }
+    
+    [PHASE 1: ROADMAP GENERATION]
+    - Identify the sequence required to complete this goal.
+    - GOVERNANCE: $depthInstruction
+    - For professional/educational goals (e.g., "Data Analytics Course"), provide a syllabus-style roadmap.
+    - Each subtask must be a JSON object: {"title": "Step Name", "notes": "Context or Tip"}.
 
-    [PHASE 1: COMPLEXITY EVALUATION]
-    - If task is a "Quick Action" (e.g., "Buy milk"): Return subtasks: [].
-    - Else, use Complexity Level: $complexity
-
-    [PHASE 2: SPECIALIZED BLUEPRINTS]
-    - CULINARY: If cooking/groceries, break into "Aroma & Base", "Main Proteins/Veg", "Flavors & Spices", "Garnish & Finish".
-    - RESEARCH: For shopping, include specific search URLs in 'notes' field.
-
-    $constraintBlock
-    Reference Today: ${now.year}-${now.month}-${now.day} (Wednesday)
+    [PHASE 2: CATEGORY & PRIORITY]
+    - Assign "Work", "Personal", "Shopping", or "General".
+    - Data/Time: If the local system found a date (${preParsedTask?.dueDate}), preserve it.
+    
+    Today's Date: ${now.year}-${now.month}-${now.day}
 
     [USER INPUT]
-    $input
+    "$input"
 
-    [STRICT OUTPUT FORMAT]
-    Return ONLY valid JSON with these keys: 
-    "title", "priority", "category", "dueDate", "exactDate", "subtasks" (array with title and notes).
+    [STRICT JSON OUTPUT]
+    Return ONLY raw JSON. No markdown, no commentary.
+    {
+      "title": "Refined Project Name",
+      "priority": "High/Medium/Low",
+      "category": "Work/Personal/Shopping/General",
+      "dueDate": "Preserve local or suggest",
+      "subtasks": []
+    }
   """;
 }
 
   static Task _parseAiResponse(String rawText, String originalInput) {
-    try {
-      final int start = rawText.indexOf('{');
-      final int end = rawText.lastIndexOf('}');
-      if (start == -1) throw const FormatException();
+  try {
+    // 1. SECURE EXTRACTION (Handles markdown fences if AI ignores instructions)
+    final int start = rawText.indexOf('{');
+    final int end = rawText.lastIndexOf('}');
+    if (start == -1) throw const FormatException("Invalid JSON");
+    final json = jsonDecode(rawText.substring(start, end + 1));
 
-      final json = jsonDecode(rawText.substring(start, end + 1));
-      List<SubTask> subtasks = (json['subtasks'] as List? ?? []).map((t) => 
-        SubTask(id: const Uuid().v4(), title: t is Map ? t['title'] : t.toString(), isCompleted: false)
-      ).toList();
-
-      DateTime? exact;
-      if (json['exactDate'] != null && json['exactDate'] != "null") {
-        exact = DateTime.tryParse(json['exactDate']);
+    // 2. ROBUST SUBTASK MAPPING
+    List<SubTask> subtasks = [];
+    if (json['subtasks'] != null && json['subtasks'] is List) {
+      for (var t in json['subtasks']) {
+        String title = "";
+        if (t is Map) {
+          title = t['title']?.toString() ?? t['task']?.toString() ?? "Step";
+        } else {
+          title = t.toString();
+        }
+        
+        subtasks.add(SubTask(
+          id: const Uuid().v4(), 
+          title: title, 
+          isCompleted: false
+        ));
       }
-
-      return Task(
-        id: const Uuid().v4(),
-        title: json['title'] ?? originalInput,
-        priority: json['priority'] ?? 'Medium',
-        category: json['category'] ?? 'General',
-        dueDate: json['dueDate'] ?? (exact != null ? "${exact.day}/${exact.month}" : ""),
-        exactDate: exact,
-        hasSpecificTime: json['hasSpecificTime'] ?? false,
-        isCompleted: false,
-        subtasks: subtasks,
-        createdAt: DateTime.now().millisecondsSinceEpoch,
-        isAiGenerated: true,
-      );
-    } catch (e) {
-      return NaturalLanguageParser.parse(originalInput);
     }
+
+    // 3. DATE RECONCILIATION
+    DateTime? exact;
+    if (json['exactDate'] != null && json['exactDate'] != "null") {
+      exact = DateTime.tryParse(json['exactDate'].toString());
+    }
+
+    return Task(
+      id: const Uuid().v4(),
+      title: json['title'] ?? originalInput,
+      priority: json['priority'] ?? 'Medium',
+      category: json['category'] ?? 'General',
+      dueDate: json['dueDate'] ?? "",
+      exactDate: exact,
+      hasSpecificTime: json['hasSpecificTime'] ?? false,
+      isCompleted: false,
+      subtasks: subtasks,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+      isAiGenerated: true,
+    );
+  } catch (e) {
+    L.d("🚨 S.INC PARSE ERROR: $e");
+    // This is the safety net if the AI response is truly broken
+    return NaturalLanguageParser.parse(originalInput);
   }
+}
 
   static Future<String> generateMorningBrief(List<Task> tasks) async {
     if (_vaultedKey.isEmpty) return "API Key missing.";
     return "Brief logic preserved";
   }
+  static String _sanitizeForSecurity(String input) {
+  String sanitized = input;
+
+  // 1. Remove common injection markers
+  final List<String> forbiddenPatterns = [
+    "you are now", "acting as", "new rules", 
+    "forget everything", "stop being", "payload"
+  ];
+
+  for (var pattern in forbiddenPatterns) {
+    sanitized = sanitized.replaceAll(RegExp(pattern, caseSensitive: false), '[SECURE]');
+  }
+
+  // 2. The "Markdown Fence" Guard
+  // Prevents users from trying to close your JSON string early
+  sanitized = sanitized.replaceAll('"', "'"); 
+  
+  return sanitized;
+}
 }

@@ -5,6 +5,10 @@ import 'package:procrastinator/utils/logger.dart';
   import '../models/task_model.dart';
 
   class SyncService {
+    // Add this line to ensure only ONE instance exists
+  static final SyncService _instance = SyncService._internal();
+  factory SyncService() => _instance;
+  SyncService._internal();
     final FirebaseAuth _auth = FirebaseAuth.instance;
     final FirebaseFirestore _db = FirebaseFirestore.instance;
     
@@ -25,30 +29,36 @@ import 'package:procrastinator/utils/logger.dart';
     }
 
     Future<User?> signInWithGoogle() async {
-      try {
-        // FORCE REFRESH: This ensures Google re-checks permissions and sends the latest photo URL
-        await _googleSignIn.signOut(); 
-        
-        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-        if (googleUser == null) return null;
+    try {
+      // 1. 🔥 PERSISTENCE CHECK: Try to sign in silently first.
+      // If the app was killed from memory, this finds the existing session 
+      // on the device (S23 FE / OnePlus) without showing a popup.
+      GoogleSignInAccount? googleUser = await _googleSignIn.signInSilently();
 
-        final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      // 2. FALLBACK: If silent failed (first login or session expired), show the popup.
+      googleUser ??= await _googleSignIn.signIn();
+      if (googleUser == null) return null;
 
-        // Debugging: This will print the URL to your console so you can verify it exists
-        L.d("GOOGLE PHOTO URL: ${googleUser.photoUrl}");
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
 
-        final AuthCredential credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
-        );
+      // Debugging: Keeping your Photo URL verification
+      L.d("📸 S.INC: GOOGLE PHOTO URL: ${googleUser.photoUrl}");
 
-        final UserCredential userCredential = await _auth.signInWithCredential(credential);
-        return userCredential.user;
-      } catch (e) {
-        L.d("Sign-In Error: $e");
-        return null;
-      }
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // 3. HANDSHAKE: Sign into Firebase with the Google credentials
+      final UserCredential userCredential = await _auth.signInWithCredential(credential);
+      
+      L.d("☁️ S.INC: Session secured for ${userCredential.user?.email}");
+      return userCredential.user;
+    } catch (e) {
+      L.d("🚨 S.INC Sign-In Error: $e");
+      return null;
     }
+  }
 
     Future<void> signOut() async {
       await _googleSignIn.signOut();
@@ -58,50 +68,62 @@ import 'package:procrastinator/utils/logger.dart';
 
     // 3. SECURE PUSH: Reconciles local and cloud data to prevent wipes
     Future<void> syncTasksToCloud(List<Task> localTasks) async {
-      final User? user = _auth.currentUser;
-      if (user == null) return;
+  final User? user = _auth.currentUser;
+  if (user == null) return;
 
-      try {
-        // Step A: Fetch the current state of the Cloud Vault
-        var doc = await _db.collection('users').doc(user.uid).get();
-        List<Task> cloudTasks = [];
-        
-        if (doc.exists && doc.data()?['tasks'] != null) {
-          List<dynamic> cloudList = doc.data()!['tasks'];
-          cloudTasks = cloudList.map((item) => Task.fromJson(item)).toList();
-        }
+  try {
+    // 🔥 THE FIX: Stop fetching and merging cloudTasks.
+    // If we want a task gone, we just don't include it in this list.
+    final taskData = localTasks.map((t) => t.toMap()).toList();
 
-        // Step B: Business Reconciliation (Merge based on Task ID)
-        // This ensures if Samsung has Task A and OnePlus has Task B, 
-        // the result is [Task A, Task B], not one deleting the other.
-        final Map<String, Task> reconciledMap = {};
-        
-        // Load cloud tasks first
-        for (var t in cloudTasks) {
-          reconciledMap[t.id] = t;
-        }
-        
-        // Overwrite/Add with local tasks (treating local as the newest truth)
-        for (var t in localTasks) {
-          reconciledMap[t.id] = t;
-        }
+    // We use .set with merge: true for the document, but since we 
+    // provide the full 'tasks' list, it REPLACES the old list entirely.
+    await _db.collection('users').doc(user.uid).set({
+      'email': user.email,
+      'lastSync': FieldValue.serverTimestamp(),
+      'tasks': taskData, 
+    }, SetOptions(merge: true));
 
-        List<Map<String, dynamic>> finalTaskData = 
-            reconciledMap.values.map((t) => t.toMap()).toList();
+    lastSyncedAt = DateTime.now();
+    L.d("☁️ S.INC: Cloud Ledger reconciled (Authoritative).");
+  } catch (e) {
+    L.d("🚨 Cloud Sync Failed: $e");
+  }
+}
+Future<void> deleteUserAccount() async {
+  final User? user = _auth.currentUser;
+  if (user == null) return;
 
-        // Step C: Push the finalized ledger
-        await _db.collection('users').doc(user.uid).set({
-          'email': user.email,
-          'lastSync': FieldValue.serverTimestamp(),
-          'tasks': finalTaskData,
-        }, SetOptions(merge: true));
+  try {
+    // 1. RE-AUTH (Fresh Handshake)
+    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    final GoogleSignInAuthentication? googleAuth = await googleUser?.authentication;
 
-        lastSyncedAt = DateTime.now();
-        L.d("Cloud Reconciled Successfully at $lastSyncedAt");
-      } catch (e) {
-        L.d("Cloud Sync Failed: $e");
-      }
+    if (googleAuth != null) {
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      await user.reauthenticateWithCredential(credential);
     }
+
+    // 2. WIPE FIRESTORE FIRST (While Auth is still valid)
+    // This is where your PERMISSION_DENIED was happening
+    L.d("🗑️ S.INC: Wiping Firestore document for ${user.uid}...");
+    await _db.collection('users').doc(user.uid).delete();
+    
+    // Optional: Wipe the beta request too
+    await _db.collection('beta_requests').doc(user.uid).delete();
+
+    // 3. FINALLY DELETE AUTH ACCOUNT
+    await user.delete();
+    
+    L.d("☢️ S.INC: Cloud and Identity wiped successfully.");
+  } catch (e) {
+    L.d("🚨 S.INC Permission Error: $e");
+    rethrow;
+  }
+}
 
     Future<List<Task>> fetchTasksFromCloud() async {
       final User? user = _auth.currentUser;

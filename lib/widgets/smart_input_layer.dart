@@ -12,10 +12,11 @@ import '../services/settings_service.dart';
 import 'package:procrastinator/widgets/custom_text_controller.dart';
 import '../models/task_model.dart';
 import 'package:procrastinator/utils/logger.dart';
+import 'dart:ui'; // 🔥 This enables the BackdropFilter and ImageFilter
 
 class SmartInputLayer extends StatefulWidget {
   final List<Task> allTasks;
-  final Function(dynamic) onTaskCreated;
+  final Function(dynamic, bool) onTaskCreated;
   final bool isVisible;
   final bool isAiLoading;
   const SmartInputLayer({
@@ -37,6 +38,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   final stt.SpeechToText _speech = stt.SpeechToText();
   final AudioRecorder _audioRecorder = AudioRecorder(); 
   final FocusNode _focusNode = FocusNode();
+ 
   
   
   File? _recordedFile;
@@ -44,6 +46,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   bool _isInputActive = false;
   bool _showHint = true;
   bool _showSlogan = true; // S.INC Brand state
+  bool _useAi = true;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -169,14 +172,14 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
       final path = await _audioRecorder.stop();
       if (path != null && mounted) {
         _recordedFile = File(path);
-        widget.onTaskCreated(_recordedFile!);
+        widget.onTaskCreated(_recordedFile!, true);
         _textController.clear();
       }
     } else {
       await _speech.stop();
       await Future.delayed(const Duration(milliseconds: 400));
       if (mounted && _textController.text.isNotEmpty) {
-        widget.onTaskCreated(_textController.text);
+        widget.onTaskCreated(_textController.text, false);
         _textController.clear();
       }
     }
@@ -194,7 +197,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   // 2. TRIGGER THE AI IMMEDIATELY
   // We do this while the text and widget are still fully "active"
   L.d("📡 S.INC: Handing baton to AI for: $text");
-  widget.onTaskCreated(text);
+  widget.onTaskCreated(text, _useAi);
 
   // 3. UI CLEANUP (With a small delay)
   // We wait 100ms to ensure the async 'onTaskCreated' is firmly in the background
@@ -353,63 +356,118 @@ if (settings.isHudEnabled)
 
         
 
-        // Polished Input Box (now keyboard-aware)
+        // --- 4. THE UI STACK (Inside build method) ---
+// This replaces the "Polished Input Box" block
+        
+        // ✨ THE INTELLIGENCE SWITCH (Floating Above)
         AnimatedPositioned(
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeOutCubic,
-          // When keyboard is up, we move the box higher to maintain visibility
+          // We anchor this exactly 160px above the bottom of the input box
+          bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 200 : 335) : 490,
+          left: 24, 
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 300),
+            opacity: _isInputActive ? 1.0 : 0.0,
+            child: Center(
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _useAi = !_useAi);
+                  HapticFeedback.heavyImpact();
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _useAi 
+                            ? Colors.indigo.withValues(alpha: 0.3) 
+                            : Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _useAi ? Colors.indigo.withValues(alpha: 0.5) : Colors.white10,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                          _useAi ? Icons.toggle_on : Icons.toggle_off_outlined, 
+                          size: 18, // Slightly larger for clarity
+                          color: _useAi ? Colors.indigoAccent : Colors.white38
+                        ),
+                          const SizedBox(width: 10),
+                          Text(
+                            _useAi ? "AI ON" : "AI OFF",
+                            style: const TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.bold, 
+                              color: Colors.white, 
+                              letterSpacing: 2.0 // More space for that "Premium" feel
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // 📥 THE INPUT BOX
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
           bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 20 : 150) : 300,
           left: 24, right: 24,
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 250),
             opacity: _isInputActive ? 1.0 : 0.0,
-            child: IgnorePointer(
-              ignoring: !_isInputActive,
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                height: 150,
-                decoration: BoxDecoration(
-                  color: isDarkMode 
-    ? const Color(0xFF1E1E1E).withValues(alpha: 0.9) 
-    : Colors.white.withValues(alpha: 0.95),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: isDarkMode ? Colors.white10 : Colors.black12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: isDarkMode ? Colors.black45 : Colors.black12, 
-                      blurRadius: 40, 
-                      offset: const Offset(0, 15)
-                    )
-                  ],
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              height: 150,
+              decoration: BoxDecoration(
+                color: isDarkMode 
+                    ? const Color(0xFF1E1E1E).withValues(alpha: 0.9) 
+                    : Colors.white.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: _useAi ? Colors.indigo.withValues(alpha: 0.3) : Colors.white10,
+                  width: _useAi ? 2.0 : 1.0,
                 ),
-                child: TextField(
-  controller: _textController,
-  focusNode: _focusNode,
-  maxLines: 4,
- autofillHints: null, 
-  enableSuggestions: false, 
-  autocorrect: false,
- textInputAction: TextInputAction.newline, 
-  onSubmitted: null, // Physically kill the keyboard submission path
-  style: TextStyle(
-    fontSize: 18, 
-    color: isDarkMode ? Colors.white : Colors.black87
-  ),
-  decoration: InputDecoration( // 🚨 Ensure 'const' is NOT before this
-    hintText: "What do you need to do?",
-    hintStyle: const TextStyle(color: Colors.white38), // Preserves your hint style
-    border: InputBorder.none,
-    // 3. The "Manual Trigger" fix
-    suffixIcon: IconButton(
-      icon: const Icon(Icons.send_rounded, color: Colors.indigo),
-      onPressed: () {
-        if (_textController.text.trim().isNotEmpty) {
-          _submitTask(); // This now only fires when physically tapped
-        }
-      },
-    ),
-  ),
-),
+                boxShadow: [
+                  BoxShadow(
+                    color: _useAi ? Colors.indigo.withValues(alpha: 0.15) : Colors.black12, 
+                    blurRadius: 40, offset: const Offset(0, 15)
+                  )
+                ],
+              ),
+              child: TextField(
+                controller: _textController,
+                focusNode: _focusNode,
+                maxLines: 4,
+                // 🔥 THE SWIPE FIX: Re-enable these to fix Samsung/OnePlus keyboard swiping
+                enableSuggestions: true, 
+                autocorrect: true, 
+                textInputAction: TextInputAction.newline,
+                style: TextStyle(fontSize: 18, color: isDarkMode ? Colors.white : Colors.black87),
+                decoration: InputDecoration(
+                  hintText: "What do you need to do?",
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _useAi ? Icons.auto_awesome : Icons.send_rounded, 
+                      color: Colors.indigo
+                    ),
+                    onPressed: _submitTask,
+                  ),
+                ),
               ),
             ),
           ),

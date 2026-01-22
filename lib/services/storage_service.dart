@@ -66,6 +66,15 @@ class StorageService {
 
     await prefs.setString(_tasksKey, secureData);
   }
+  static Future<void> clearAll() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('tasks'); // The key where we store your task list
+    L.d("💾 S.INC: Local Hardware Vault wiped successfully.");
+  } catch (e) {
+    L.d("🚨 S.INC: Local Wipe Error: $e");
+  }
+}
 
   static Future<List<Task>> loadTasks() async {
     final prefs = await SharedPreferences.getInstance();
