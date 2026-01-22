@@ -357,115 +357,120 @@ if (settings.isHudEnabled)
         
 
         // --- 4. THE UI STACK (Inside build method) ---
-// This replaces the "Polished Input Box" block
-        
-        // ✨ THE INTELLIGENCE SWITCH (Floating Above)
-        AnimatedPositioned(
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeOutCubic,
-          // We anchor this exactly 160px above the bottom of the input box
-          bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 200 : 335) : 490,
-          left: 24, 
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 300),
-            opacity: _isInputActive ? 1.0 : 0.0,
-            child: Center(
-              child: GestureDetector(
-                onTap: () {
-                  setState(() => _useAi = !_useAi);
-                  HapticFeedback.heavyImpact();
-                },
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _useAi 
-                            ? Colors.indigo.withValues(alpha: 0.3) 
-                            : Colors.white.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _useAi ? Colors.indigo.withValues(alpha: 0.5) : Colors.white10,
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                          _useAi ? Icons.toggle_on : Icons.toggle_off_outlined, 
-                          size: 18, // Slightly larger for clarity
-                          color: _useAi ? Colors.indigoAccent : Colors.white38
-                        ),
-                          const SizedBox(width: 10),
-                          Text(
-                            _useAi ? "AI ON" : "AI OFF",
-                            style: const TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.bold, 
-                              color: Colors.white, 
-                              letterSpacing: 2.0 // More space for that "Premium" feel
-                            ),
+// ✨ THE INTELLIGENCE SWITCH (Island 1)
+         AnimatedPositioned(
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+            // 🔥 Position 0 keeps it out of the way of your swipe cards when hidden
+            bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 200 : 335) : 0,
+            left: 24, 
+            child: IgnorePointer(
+          ignoring: !_isInputActive,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 300),
+              opacity: _isInputActive ? 1.0 : 0.0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() => _useAi = !_useAi);
+                    HapticFeedback.heavyImpact();
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _useAi 
+                              ? Colors.indigo.withValues(alpha: 0.3) 
+                              : Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: _useAi ? Colors.indigo.withValues(alpha: 0.5) : Colors.white10,
+                            width: 1.5,
                           ),
-                        ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _useAi ? Icons.toggle_on : Icons.toggle_off_outlined, 
+                              size: 18, 
+                              color: _useAi ? Colors.indigoAccent : Colors.white38
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              _useAi ? "AI ON" : "AI OFF",
+                              style: const TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.bold, 
+                                color: Colors.white, 
+                                letterSpacing: 2.0
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
+            ),
+         ),
+       
 
-        // 📥 THE INPUT BOX
+        // 📥 THE INPUT BOX (Island 2)
         AnimatedPositioned(
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeOutCubic,
-          bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 20 : 150) : 300,
-          left: 24, right: 24,
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 250),
-            opacity: _isInputActive ? 1.0 : 0.0,
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              height: 150,
-              decoration: BoxDecoration(
-                color: isDarkMode 
-                    ? const Color(0xFF1E1E1E).withValues(alpha: 0.9) 
-                    : Colors.white.withValues(alpha: 0.95),
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: _useAi ? Colors.indigo.withValues(alpha: 0.3) : Colors.white10,
-                  width: _useAi ? 2.0 : 1.0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+            // 🔥 Moving to bottom 0 ensures no "ghost touches" in the middle of the screen
+            bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 20 : 150) : 0,
+            left: 24, right: 24,
+            child: IgnorePointer( // 🔥 MOVE THE GUARD HERE
+    ignoring: !_isInputActive,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 250),
+              opacity: _isInputActive ? 1.0 : 0.0,
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                height: 150,
+                decoration: BoxDecoration(
+                  color: isDarkMode 
+                      ? const Color(0xFF1E1E1E).withValues(alpha: 0.9) 
+                      : Colors.white.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: _useAi ? Colors.indigo.withValues(alpha: 0.3) : Colors.white10,
+                    width: _useAi ? 2.0 : 1.0,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _useAi ? Colors.indigo.withValues(alpha: 0.15) : Colors.black12, 
+                      blurRadius: 40, offset: const Offset(0, 15)
+                    )
+                  ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: _useAi ? Colors.indigo.withValues(alpha: 0.15) : Colors.black12, 
-                    blurRadius: 40, offset: const Offset(0, 15)
-                  )
-                ],
-              ),
-              child: TextField(
-                controller: _textController,
-                focusNode: _focusNode,
-                maxLines: 4,
-                // 🔥 THE SWIPE FIX: Re-enable these to fix Samsung/OnePlus keyboard swiping
-                enableSuggestions: true, 
-                autocorrect: true, 
-                textInputAction: TextInputAction.newline,
-                style: TextStyle(fontSize: 18, color: isDarkMode ? Colors.white : Colors.black87),
-                decoration: InputDecoration(
-                  hintText: "What do you need to do?",
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  border: InputBorder.none,
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _useAi ? Icons.auto_awesome : Icons.send_rounded, 
-                      color: Colors.indigo
+                child: TextField(
+                  controller: _textController,
+                  focusNode: _focusNode,
+                  maxLines: 4,
+                  enableSuggestions: true, 
+                  autocorrect: true, 
+                  textInputAction: TextInputAction.newline,
+                  style: TextStyle(fontSize: 18, color: isDarkMode ? Colors.white : Colors.black87),
+                  decoration: InputDecoration(
+                    hintText: "What do you need to do?",
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    border: InputBorder.none,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _useAi ? Icons.auto_awesome : Icons.send_rounded, 
+                        color: Colors.indigo
+                      ),
+                      onPressed: _submitTask,
                     ),
-                    onPressed: _submitTask,
                   ),
                 ),
               ),
