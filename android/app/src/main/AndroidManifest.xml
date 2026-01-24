@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" tools:node="remove" />
@@ -60,6 +61,9 @@
             android:value="2" />
 
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver 
+    android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" 
+    android:exported="false" />
             
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
             <intent-filter>

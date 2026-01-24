@@ -537,16 +537,17 @@ void _updateBackgroundHUD(List<Task> tasks, SettingsService settings) async {
       : NaturalLanguageParser.parse("Voice Task");
 L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiEnabled}");
   // 4. THE HARD GATE: LOGGED-IN & ENABLED CHECK
-  if (currentUser == null || !settings.isAiEnabled) {
-    L.d("🚶 S.INC: AI Bypassed. Manual handling engaged.");
-    setState(() {
-      _isAiLoading = false;
-      _previewTask = localTruth.copyWith(
-        dueDate: localTruth.dueDate.isEmpty ? "Go Ahead, Ignore me" : localTruth.dueDate
-      );
-    });
-    return;
-  }
+  if (currentUser == null || !settings.isAiEnabled || !settings.isBetaApproved) {
+  L.d("🛡️ S.INC: AI Blocked. Reason: ${currentUser == null ? 'Not Logged In' : (!settings.isBetaApproved ? 'Not Beta Approved' : 'AI Toggled Off')}");
+  
+  setState(() {
+    _isAiLoading = false;
+    _previewTask = localTruth.copyWith(
+      dueDate: localTruth.dueDate.isEmpty ? "Go Ahead, Ignore me" : localTruth.dueDate
+    );
+  });
+  return;
+}
 
   // 5. THE AI BATON PASS
   setState(() {
@@ -562,6 +563,7 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
       input,
       settings.aiCreativity,
       preParsedTask: localTruth,
+      isBetaApproved: settings.isBetaApproved, // 👈 PASS THE PERMISSION HERE
     );
 
     if (!mounted) return;

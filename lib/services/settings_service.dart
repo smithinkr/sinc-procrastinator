@@ -3,7 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:procrastinator/utils/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // MANDATORY: For Beta Check
-
+import 'storage_service.dart';
+import 'notification_service.dart';
 import 'security_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
  // Ensure this is there too
@@ -20,20 +21,7 @@ class SettingsService with ChangeNotifier {
   
   
   // ADD THIS CONSTRUCTOR:
-SettingsService() {
-  loadSettings();
-
-  // THE REACTIVE FIX: Wait for the Auth state to be "Solid"
-  FirebaseAuth.instance.authStateChanges().listen((user) {
-    if (user != null) {
-      L.d("👤 IDENTITY: User confirmed (${user.uid}). Syncing Beta Status...");
-      startBetaStatusListener(); // This flips your UI to 'Verified' instantly
-    } else {
-      L.d("👤 IDENTITY: No user found. Features locked.");
-      stopBetaListener();
-    }
-  });
-}
+SettingsService();
 
   // --- NEW BETA STATE (MANDATORY) ---
   
@@ -53,40 +41,46 @@ SettingsService() {
   // --- NEW BETA LISTENER (MANDATORY) ---
 
   void startBetaStatusListener() {
-  stopBetaListener(); // Clean up any old ones first
+  stopBetaListener(); // Clean up old listeners
 
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
+  // 1. IDENTITY AUDITOR 
+  // We moved this here from the constructor. It now waits for main.dart to trigger it.
+  FirebaseAuth.instance.authStateChanges().listen((user) {
+    if (user != null) {
+      L.d("👤 IDENTITY: User confirmed (${user.uid}). Syncing Beta Status...");
+      
+      // 2. YOUR ORIGINAL FIRESTORE LOGIC
+      // Now safely nested and triggered only when a user is present.
+      _betaListener = FirebaseFirestore.instance 
+          .collection('users')
+          .doc(user.uid)
+          .snapshots()
+          .listen((snapshot) async {
+            if (snapshot.exists && snapshot.data() != null) {
+              final data = snapshot.data() as Map<String, dynamic>;
+              _isBetaApproved = data['isBetaApproved'] ?? false;
+              
+              // Auto-unlock AI if approved
+              if (_isBetaApproved && !_isAiEnabled) {
+                _isAiEnabled = true;
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('isAiEnabled', true);
+                L.d("🔓 S.INC: AI Features auto-unlocked for approved beta user.");
+              }
 
-  // Catch the stream here!
-  _betaListener = FirebaseFirestore.instance 
-      .collection('users')
-      .doc(user.uid)
-      .snapshots()
-      .listen((snapshot) async {
-        if (snapshot.exists && snapshot.data() != null) {
-          final data = snapshot.data() as Map<String, dynamic>;
-          _isBetaApproved = data['isBetaApproved'] ?? false;
-          // LOGIC: If they are approved, we don't care about the pending list anymore!
-    if (_isBetaApproved && !_isAiEnabled) {
-              _isAiEnabled = true;
-              
-              // Save to permanent storage so it stays ON after restart
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('isAiEnabled', true);
-              
-              L.d("🔓 S.INC: AI Features auto-unlocked for approved beta user.");
+              if (_isBetaApproved) {
+                L.d("✅ S.INC: User is officially approved. Clearing UI noise.");
+              }
+
+              notifyListeners();
+              L.d("📡 S.INC CLOUD: Beta Status -> $_isBetaApproved");
             }
-
-    if (_isBetaApproved) {
-      L.d("✅ S.INC: User is officially approved. Clearing UI noise.");
+          });
+    } else {
+      L.d("👤 IDENTITY: No user found. Features locked.");
+      stopBetaListener();
     }
-          notifyListeners();
-          
-          // Use your custom logger 'L' instead of print
-          L.d("📡 S.INC CLOUD: Beta Status -> $_isBetaApproved");
-        }
-      });
+  });
 }
 
   void stopBetaListener() {
@@ -159,9 +153,29 @@ SettingsService() {
     _briefHour = hour;
     _briefMinute = minute;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('briefHour', hour);
-    await prefs.setInt('briefMinute', minute);
+    // 1. Save to Local Storage
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setInt('briefHour', hour);
+  await prefs.setInt('briefMinute', minute);
+
+  // 🔥 THE MISSION CRITICAL ADDITION:
+  // We must immediately tell the Notification engine to reschedule.
+  // We need to fetch the tasks from storage so the brief isn't empty!
+  try {
+    final tasks = await StorageService.loadTasks(); 
+    
+    // We call the service directly to overwrite the old schedule
+    await NotificationService().updateNotifications(
+      allTasks: tasks,
+      briefHour: hour,
+      briefMinute: minute,
+    );
+
+    L.d("🔔 S.INC: Morning Brief rescheduled to ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}");
+  } catch (e) {
+    L.d("🚨 S.INC: Failed to hot-swap notification schedule: $e");
+  }
+    
   }
 
   Future<void> updateAiCreativity(double value) async {

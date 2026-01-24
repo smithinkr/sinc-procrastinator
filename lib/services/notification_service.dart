@@ -5,7 +5,14 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/task_model.dart';
 import '../services/storage_service.dart';
+import 'package:flutter/services.dart';
 
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse notificationResponse) {
+  // ✅ Use your logger instead of print
+  // This ensures the log only shows up where you want it
+  L.d('SYSTEM: Notification action triggered in background: ${notificationResponse.payload}');
+}
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
@@ -19,20 +26,35 @@ class NotificationService {
 
   Future<void> init() async {
     tz_data.initializeTimeZones();
+    await requestPermissions();
 
     try {
-      final String timeZoneName = DateTime.now().timeZoneName; 
-      tz.setLocalLocation(tz.getLocation(timeZoneName));
-    } catch (e) {
-      // Failsafe for specific Android/Windows system name mismatches
-      tz.setLocalLocation(tz.getLocation('Asia/Kolkata')); 
-    }
+  // 1. Ask the Android/iOS system directly for the local timezone ID
+  // This bypasses the need for 'flutter_timezone' or 'timezone_provider'
+  const MethodChannel channel = MethodChannel('flutter_timezone');
+  final String? timeZoneName = await channel.invokeMethod<String>('getLocalTimezone');
+  
+  // 2. Fallback to IST if the system is being shy
+  final String location = timeZoneName ?? 'Asia/Kolkata';
+  
+  tz.setLocalLocation(tz.getLocation(location));
+  L.d("S.INC: Native Handshake successful. Location: $location");
+} catch (e) {
+  // 3. The "Emergency" Fallback
+  tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+  L.d("S.INC: Native detect failed, using fallback. Error: $e");
+}
 
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
     await _notifications.initialize(
       const InitializationSettings(android: initializationSettingsAndroid),
+      onDidReceiveNotificationResponse: (details) {
+        L.d("Foreground notification clicked");
+      },
+      // 🛑 THIS IS THE MISSING LINK FOR RELEASE APKs
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     final androidPlugin = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
@@ -100,7 +122,7 @@ class NotificationService {
 
     L.d("SYSTEM: Notifications Refreshed (Tasks: ${tasksToSchedule.length})");
   }
-
+  @pragma('vm:entry-point')
   Future<void> _scheduleDailyBriefing(List<Task> allTasks, int hour, int minute) async {
     final now = tz.TZDateTime.now(tz.local);
     
@@ -124,7 +146,7 @@ class NotificationService {
 
     await _notifications.zonedSchedule(
       _dailyId,
-      "🌞 Morning Reality Check", 
+      "Morning Reality Check", 
       message,                  
       scheduledDate,
       const NotificationDetails(
@@ -145,7 +167,7 @@ class NotificationService {
     
     L.d("SYSTEM: Brief scheduled for $scheduledDate");
   }
-
+  @pragma('vm:entry-point')
   Future<void> _scheduleCriticalAlert(Task task) async {
     final now = tz.TZDateTime.now(tz.local);
     if (task.exactDate == null) return; 
@@ -162,8 +184,8 @@ class NotificationService {
     if (scheduledDate.isAfter(now)) {
       await _notifications.zonedSchedule(
         task.id.hashCode,
-        "🔥 DUE SOON: ${task.title}",
-        "This has a deadline. Stop ignoring it.",
+        "DUE SOON: ${task.title}",
+        "This has a deadline. Let's blame the app devs for missing it.",
         scheduledDate,
         const NotificationDetails(
           android: AndroidNotificationDetails(
@@ -183,7 +205,7 @@ class NotificationService {
 
   String getSassyBriefing(int n, int x, bool isWeekend) {
     if (isWeekend) {
-      return "Today is the weekend, let's just ignore the $n urgent and $x ignorable tasks. Be a pro.";
+      return "It's the weekends, Just ignore the $n urgent and $x ignorable tasks. Be a pro.";
     }
     List<String> templates = [
       "You have $n deadlines today. 'Tomorrow You' is probably better equipped for this. Go back to sleep.",

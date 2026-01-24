@@ -7,6 +7,7 @@ import '../services/sync_service.dart';
 import 'package:procrastinator/utils/logger.dart';
 import '../services/storage_service.dart';
 
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 

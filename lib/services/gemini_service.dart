@@ -5,6 +5,7 @@
   import 'natural_language_parser.dart'; 
   import 'dart:io';
   import '../utils/logger.dart'; // This connects the 'L' to its definition
+  import '/env/secrets.dart'; // Add this to connect the vault to the service
   
 
   class GeminiService {
@@ -14,7 +15,7 @@
   static DateTime? _lastRequestTime;
 
   // --- LAYER 1: SECURE INJECTION ---
-  static const String _injectedKey = String.fromEnvironment('GEMINI_API_KEY');
+  static final String _injectedKey = Secrets.geminiApiKey;
   
   // --- LAYER 2: RUNTIME OBFUSCATION ---
   static final String _vaultedKey = _scramble(_injectedKey);
@@ -35,11 +36,16 @@
     dynamic input, 
     double creativity, {
     Task? preParsedTask, 
+    required bool isBetaApproved,
   }) async {
     // Logic like '++' and 'DateTime.now()' must live INSIDE the method
     final int currentId = ++_globalRequestCounter;
     final now = DateTime.now();
     final String currentRequestHash = input.toString() + creativity.toString();
+    if (!isBetaApproved) {
+    L.d("🛡️ S.INC SECURITY: Unauthorized AI request blocked at the Service level.");
+    throw Exception("BETA_ACCESS_REQUIRED");
+  }
 
     L.d("📡 [AI CALL]: Triggered at $now | Input Type: ${input.runtimeType}");
 

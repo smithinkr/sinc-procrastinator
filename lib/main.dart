@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:provider/provider.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
 
 
 // 1. Secrets import
@@ -14,6 +15,7 @@ import 'services/settings_service.dart';
 void main() async {
   // 1. Ensure Flutter is ready for native/async calls
   WidgetsFlutterBinding.ensureInitialized();
+  tz.initializeTimeZones();
   
   // 2. Initialize Core Services
   await HomeWidget.setAppGroupId('group.com.sinc.procrastinator');
@@ -22,6 +24,8 @@ void main() async {
   // 3. Initialize Notification Service
   final notificationService = NotificationService();
   await notificationService.init();
+  
+  // Only request if not already granted to prevent Android 14 "Hangs"
   await notificationService.requestPermissions();
 
   // 4. Load User Settings
@@ -41,7 +45,12 @@ void main() async {
       child: const MyApp(),
     ),
   );
+  // 🔥 THE SURGICAL ADDITION: 
+  // We explicitly trigger the Cloud/Beta logic AFTER the app has booted.
+  // This prevents the "Startup Logjam" that killed your notifications.
+  settingsService.startBetaStatusListener();
 }
+
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

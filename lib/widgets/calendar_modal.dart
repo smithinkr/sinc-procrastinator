@@ -359,14 +359,41 @@ void didUpdateWidget(covariant CalendarModal oldWidget) {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        task.title, 
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black87,
-                          decoration: task.isCompleted ? TextDecoration.lineThrough : null,
-                        )
-                      ),
-                    )
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        task.title,
+        style: TextStyle(
+          color: isDark ? Colors.white : Colors.black87,
+          decoration: task.isCompleted ? TextDecoration.lineThrough : null,
+        ),
+      ),
+      // --- THE PRECISION LAYER ---
+      // We check for exactDate and hasSpecificTime to avoid "Ignore me" strings
+      if (task.exactDate != null && task.hasSpecificTime)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Row(
+            children: [
+              // Subtle AI indicator if Gemini helped with this timing
+              if (task.isAiGenerated)
+                const Icon(Icons.auto_awesome, size: 10, color: Colors.indigoAccent),
+              if (task.isAiGenerated) const SizedBox(width: 4),
+              Text(
+                TimeOfDay.fromDateTime(task.exactDate!).format(context),
+                style: TextStyle(
+                  fontSize: 11, 
+                  color: isDark ? Colors.white38 : Colors.black38,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  ),
+)
                   ],
                 ),
               )),
@@ -419,19 +446,23 @@ void didUpdateWidget(covariant CalendarModal oldWidget) {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text(
-                      task.hasSpecificTime 
-                        ? "Due at ${task.dueDate.split(' ').last}" 
-                        : "All day task", 
-                      style: const TextStyle(fontSize: 12, color: Colors.grey)
-                    ),
-                  ],
-                ),
-              ),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        task.title, 
+        maxLines: 1, 
+        overflow: TextOverflow.ellipsis, 
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)
+      ),
+      // 🔥 THE EDIT: Using logic-based confirmation instead of string-splitting
+      Text(
+        task.hasSpecificTime ? "Scheduled for this day" : "All day task", 
+        style: const TextStyle(fontSize: 12, color: Colors.grey)
+      ),
+    ],
+  ),
+),
             ],
           ),
         );

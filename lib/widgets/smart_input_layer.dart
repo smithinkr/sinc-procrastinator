@@ -46,7 +46,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   bool _isInputActive = false;
   bool _showHint = true;
   bool _showSlogan = true; // S.INC Brand state
-  bool _useAi = true;
+  
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -187,6 +187,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
 
   void _submitTask() {
   final String text = _textController.text.trim();
+  final settings = Provider.of<SettingsService>(context, listen: false);
   
   // 1. THE DEADBOLT (Security Guard)
   // Check widget.isAiLoading to prevent duplicate triggers
@@ -197,7 +198,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   // 2. TRIGGER THE AI IMMEDIATELY
   // We do this while the text and widget are still fully "active"
   L.d("📡 S.INC: Handing baton to AI for: $text");
-  widget.onTaskCreated(text, _useAi);
+  widget.onTaskCreated(text, settings.isAiEnabled);
 
   // 3. UI CLEANUP (With a small delay)
   // We wait 100ms to ensure the async 'onTaskCreated' is firmly in the background
@@ -372,9 +373,11 @@ if (settings.isHudEnabled)
               child: Center(
                 child: GestureDetector(
                   onTap: () {
-                    setState(() => _useAi = !_useAi);
-                    HapticFeedback.heavyImpact();
-                  },
+    // ⚡ THE DIRECT WIRE: Tell the global settings to flip
+    settings.toggleAiFeatures(!settings.isAiEnabled); 
+    HapticFeedback.heavyImpact();
+    L.d("🎚️ S.INC: UI Toggle synced with Global Settings -> ${!settings.isAiEnabled}");
+  },
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
                     child: BackdropFilter(
@@ -383,12 +386,12 @@ if (settings.isHudEnabled)
                         duration: const Duration(milliseconds: 300),
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                         decoration: BoxDecoration(
-                          color: _useAi 
+                          color: settings.isAiEnabled 
                               ? Colors.indigo.withValues(alpha: 0.3) 
                               : Colors.white.withValues(alpha: 0.05),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: _useAi ? Colors.indigo.withValues(alpha: 0.5) : Colors.white10,
+                            color: settings.isAiEnabled ? Colors.indigo.withValues(alpha: 0.5) : Colors.white10,
                             width: 1.5,
                           ),
                         ),
@@ -396,13 +399,13 @@ if (settings.isHudEnabled)
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              _useAi ? Icons.toggle_on : Icons.toggle_off_outlined, 
+                              settings.isAiEnabled ? Icons.toggle_on : Icons.toggle_off_outlined, 
                               size: 18, 
-                              color: _useAi ? Colors.indigoAccent : Colors.white38
+                              color: settings.isAiEnabled ? Colors.indigoAccent : Colors.white38
                             ),
                             const SizedBox(width: 10),
                             Text(
-                              _useAi ? "AI ON" : "AI OFF",
+                              settings.isAiEnabled ? "AI ON" : "AI OFF",
                               style: const TextStyle(
                                 fontSize: 12, fontWeight: FontWeight.bold, 
                                 color: Colors.white, 
@@ -442,12 +445,12 @@ if (settings.isHudEnabled)
                       : Colors.white.withValues(alpha: 0.95),
                   borderRadius: BorderRadius.circular(28),
                   border: Border.all(
-                    color: _useAi ? Colors.indigo.withValues(alpha: 0.3) : Colors.white10,
-                    width: _useAi ? 2.0 : 1.0,
+                    color: settings.isAiEnabled ? Colors.indigo.withValues(alpha: 0.3) : Colors.white10,
+                    width: settings.isAiEnabled ? 2.0 : 1.0,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: _useAi ? Colors.indigo.withValues(alpha: 0.15) : Colors.black12, 
+                      color: settings.isAiEnabled ? Colors.indigo.withValues(alpha: 0.15) : Colors.black12, 
                       blurRadius: 40, offset: const Offset(0, 15)
                     )
                   ],
@@ -466,7 +469,7 @@ if (settings.isHudEnabled)
                     border: InputBorder.none,
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _useAi ? Icons.auto_awesome : Icons.send_rounded, 
+                        settings.isAiEnabled ? Icons.auto_awesome : Icons.send_rounded, 
                         color: Colors.indigo
                       ),
                       onPressed: _submitTask,
