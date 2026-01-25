@@ -1,40 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:paddingStart="20dp"
-    android:paddingEnd="12dp"
-    android:background="@drawable/pill_background"
-    android:clipToOutline="true">
-
-    <FrameLayout
-        android:id="@+id/widget_button"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_alignParentEnd="true"
-        android:layout_centerVertical="true"
-        android:background="@drawable/button_accent_bg">
-
-        <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_gravity="center"
-            android:src="@android:drawable/ic_input_add"
-            android:tint="?android:attr/colorBackground" />
-    </FrameLayout>
-
-    <TextView
-        android:id="@+id/headline_description"
+    android:padding="4dp"> <RelativeLayout
+        android:id="@+id/widget_container"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_toStartOf="@id/widget_button"
-        android:layout_centerVertical="true"
-        android:layout_marginEnd="12dp"
-        android:text="No urgent tasks"
-        android:textColor="?android:attr/textColorPrimary" 
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:maxLines="3"
-        android:ellipsize="end" />
+        android:layout_height="match_parent"
+        android:paddingStart="24dp"
+        android:paddingEnd="8dp"
+        android:background="@drawable/pill_background"
+        android:clipToOutline="false"> <FrameLayout
+            android:id="@+id/widget_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:background="@drawable/button_accent_bg">
 
-</RelativeLayout>
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:src="@android:drawable/ic_input_add"
+                android:tint="@android:color/white" /> 
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/headline_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_toStartOf="@id/widget_button"
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="12dp"
+            android:text="No urgent tasks"
+            android:textColor="?android:attr/textColorPrimary" 
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:lineSpacingExtra="2sp"
+            android:ellipsize="end" />
+
+    </RelativeLayout>
+</FrameLayout>

@@ -23,13 +23,24 @@
  
 
   class HomeScreen extends StatefulWidget {
-    const HomeScreen({super.key});
+    // 1. Define the variables the widget will hold
+  final bool startLoggedIn;
+  final String userInitial;
+  final String? userPhotoUrl;
+    // 2. Update the constructor to accept them
+  const HomeScreen({
+    super.key, 
+    this.startLoggedIn = false, // Default to false if not provided
+    this.userInitial = '', 
+    this.userPhotoUrl,     // Default to empty string
+  });
 
     @override
     State<HomeScreen> createState() => _HomeScreenState();
   }
 
   class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    
   StreamSubscription<User?>? _authListener;
     static const List<Color> _darkPalette = [
       Color(0xFF2C3E50), Color(0xFF3E3D32), Color(0xFF4A2328),
@@ -52,11 +63,13 @@
     Timer? _cooldownTimer;
     Timer? _deleteDebounceTimer;
     
+    
 
     double _drawerDragOffset = 0.0;
     final double _maxDrawerWidth = 140.0;
     String _selectedCategory = 'All';
     String? _currentUid; // Track the current user ID
+    String? _userPhotoUrl;
 
     Task? _expandedTask;
     Task? _previewTask;
@@ -102,23 +115,49 @@
         _loadData(); 
       }
     }
+    bool _isCloudSynced = false; 
+  String _userInitial = '';
+  
   @override
     void initState() {
       super.initState();
       
       // START AUDITORS
       WidgetsBinding.instance.addObserver(this); // Lifecycle Auditor
+      // 2. 🔥 THE INSTANT-LOGIN INJECTION
+  // We populate our UI state IMMEDIATELY from the 'Auth Hint' passed from main.dart
+  if (widget.startLoggedIn) {
+    _isCloudSynced = true; // This triggers your Blue Ring
+    _userInitial = widget.userInitial; // This sets the letter
+    _userPhotoUrl = widget.userPhotoUrl; // <--- ASSIGN IT HERE
+    L.d("☁️ S.INC: Instant-Login active for: ${widget.userInitial}");
+  }
       
-      // AUTH AUDITOR: Immediately refreshes tasks when user logs in/out
       _authListener = FirebaseAuth.instance.authStateChanges().listen((user) {
-        if (user?.uid != _currentUid) {
-      _currentUid = user?.uid; 
-      if (mounted) {
-        L.d("☁️ S.INC: Identity Changed to ${user?.email}. Refreshing Ledger...");
-        _loadData(); 
-      }
+  if (mounted) {
+    setState(() {
+      _currentUid = user?.uid;
+      
+      // 🔥 THE UNIFIED UI LOGIC
+      // This replaces any previous background UI refresh logic
+      _isCloudSynced = user != null;
+      _userInitial = user?.displayName?.isNotEmpty == true 
+          ? user!.displayName![0].toUpperCase() 
+          : '';
+      _userPhotoUrl = user?.photoURL;
+    });
+
+    // ☁️ DATA REFRESH
+    // We only load data if the user actually changed
+    if (user != null) {
+      L.d("☁️ S.INC: Identity Verified. Syncing Ledger...");
+      _loadData(); 
+    } else {
+      L.d("☢️ S.INC: User Logged Out. Local vault only.");
+      // Optional: Clear cloud-specific local tasks if necessary
     }
-      });
+  }
+});
 
       // YOUR EXISTING CODE
       
@@ -178,52 +217,54 @@
       super.dispose();
     }
 
-    Future<void> _loadData() async {
-      List<Task> mergedTasks = [];
+      Future<void> _loadData() async {
+  List<Task> mergedTasks = [];
+  
 
-      // 1. PHASE ONE: Load from the local "Hardware Vault"
-      // We show this immediately so the user doesn't see a blank screen.
-      try {
-        final localTasks = await StorageService.loadTasks();
-        if (localTasks.isNotEmpty) {
-          mergedTasks = localTasks;
-          _updateUI(mergedTasks); 
-        }
-      } catch (e) {
-        L.d("🚨 LOCAL LOAD ERROR: $e");
-      }
-
-      // 2. PHASE TWO: Handshake with Firebase
-      try {
-        await SyncService().getUserId(); 
-        final cloudTasks = await SyncService().fetchTasksFromCloud();
-        
-        if (cloudTasks.isNotEmpty) {
-          // SMART MERGE: We only add tasks from the cloud that aren't already here.
-          // This prevents the cloud from "deleting" newer local tasks.
-          final localIds = mergedTasks.map((t) => t.id).toSet();
-          final newFromCloud = cloudTasks.where((t) => !localIds.contains(t.id)).toList();
-
-          if (newFromCloud.isNotEmpty) {
-            mergedTasks.addAll(newFromCloud);
-            
-            // Sort by date (assuming your Task model has a createdAt or similar)
-            mergedTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-            // 3. SECURE THE MERGE: Save the updated list back to the local vault
-            // Because of our 'compute' update in StorageService, this won't freeze the UI.
-            await StorageService.saveTasks(mergedTasks);
-            _updateUI(mergedTasks);
-          }
-        }
-      } catch (e) {
-        // If the user is offline, we just fail silently. The local tasks are already visible.
-        L.d("🚨 CLOUD SYNC ERROR: $e");
-      }
-      // Inside _loadData() at the very end
-  _updateUI(mergedTasks);
-
+  // 1. PHASE ONE: Load from the local "Hardware Vault"
+  try {
+    final localTasks = await StorageService.loadTasks(_currentUid);
+    if (localTasks.isNotEmpty) {
+      mergedTasks = localTasks;
+      _updateUI(mergedTasks); 
     }
+  } catch (e) {
+    L.d("🚨 LOCAL LOAD ERROR: $e");
+  }
+
+  // 2. PHASE TWO: Handshake with Firebase
+  // 🔥 THE FIX: Use our local _currentUid variable instead of fetching it again
+  if (_currentUid == null) {
+    L.d("💾 S.INC: Guest Mode active. Skipping cloud handshake.");
+    _updateUI(mergedTasks);
+    return; // Exit early if not logged in
+  }
+
+  try {
+    L.d("☁️ S.INC: Identity Verified for ID: $_currentUid. Fetching Cloud Ledger...");
+    
+    // We can now safely call fetchTasksFromCloud() knowing we are authenticated
+    final cloudTasks = await SyncService().fetchTasksFromCloud();
+    
+    if (cloudTasks.isNotEmpty) {
+      final localIds = mergedTasks.map((t) => t.id).toSet();
+      final newFromCloud = cloudTasks.where((t) => !localIds.contains(t.id)).toList();
+
+      if (newFromCloud.isNotEmpty) {
+        mergedTasks.addAll(newFromCloud);
+        mergedTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+        // 3. SECURE THE MERGE
+        await StorageService.saveTasks(mergedTasks, _currentUid);
+      }
+    }
+  } catch (e) {
+    L.d("🚨 CLOUD SYNC ERROR: $e");
+  }
+
+  // Final UI Update
+  _updateUI(mergedTasks);
+}
 
     /// Helper to refresh the UI safely
     void _updateUI(List<Task> tasks) {
@@ -273,7 +314,7 @@ void _saveData({SettingsService? settings, ScaffoldMessengerState? messenger}) a
     final currentUser = FirebaseAuth.instance.currentUser;
 
     // 2. LOCAL VAULT (Prioritized)
-    await StorageService.saveTasks(taskSnapshot);
+    await StorageService.saveTasks(taskSnapshot, _currentUid);
     
     // 3. CLOUD SYNC (Silent Handshake)
     if (currentUser != null) {
@@ -317,10 +358,11 @@ void _updateBackgroundHUD(List<Task> tasks, SettingsService settings) async {
     );
     
     await NotificationService().updateNotifications(
-      allTasks: tasks,
-      briefHour: settings.briefHour, 
-      briefMinute: settings.briefMinute,
-    );
+  allTasks: tasks,
+  briefHour: settings.briefHour, 
+  briefMinute: settings.briefMinute,
+  uid: _currentUid, // 🔥 ADD THIS: Pass our local UID to the notification engine
+);
   } catch (e) {
     L.d("🚨 S.INC HUD Error: $e");
   }
@@ -728,11 +770,15 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
 
     
     void _showGlobalIdentityModal(BuildContext context, SettingsService settings) {
+  // 🔥 THE SWITCH: We use our local variables for a snappy UI, 
+  // falling back to Firebase only for raw email/UID data.
   final user = FirebaseAuth.instance.currentUser;
+  final bool isLoggedIn = _isCloudSynced; // Use local state variable
+  final String? photoUrl = _userPhotoUrl; // Use local state variable
 
   showDialog(
     context: context,
-    barrierColor: Colors.black.withValues(alpha: 0.7), 
+    barrierColor: Colors.black.withValues(alpha: 0.7),
     builder: (context) => Center(
       child: Material(
         color: Colors.transparent,
@@ -747,29 +793,29 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // BRANDING HEADER
-              Text("S.INC CLOUD GATE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.grey[500])),
+              Text("cloud console", 
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.grey[500])),
               const SizedBox(height: 24),
 
-              if (user == null) ...[
-                // --- REQUIREMENT 3.1: NOT LOGGED IN ---
+              if (!isLoggedIn) ...[
                 const Icon(Icons.cloud_off_outlined, size: 48, color: Colors.grey),
                 const SizedBox(height: 16),
-                const Text("Data is Local Only", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Text("Data stored Locally", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 12),
                 Text(
-                  "Log in to never lose your data and unlock AI features.",
+                  "sign in to save data, and stop blaming app devs",
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey[600], height: 1.5),
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
                   onPressed: () async {
+                    // Logic already updated in SyncService to save the Auth Hint
                     await SyncService().signInWithGoogle();
                     if (context.mounted) Navigator.pop(context);
                   },
                   icon: const Icon(Icons.login, size: 16),
-                  label: const Text("LOG IN TO UNLOCK"),
+                  label: const Text("LOG IN"),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.indigo,
                     foregroundColor: Colors.white,
@@ -778,21 +824,29 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
                   ),
                 ),
               ] else ...[
-                // --- REQUIREMENT 3.2: LOGGED IN ---
+                // --- LOGGED IN UI (With Profile Photo support) ---
                 Row(
                   children: [
                     CircleAvatar(
                       radius: 22,
                       backgroundColor: Colors.indigo,
-                      child: Text((user.displayName ?? "U")[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      // Priority: Photo -> Initial
+                      backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) 
+                          ? NetworkImage(photoUrl) 
+                          : null,
+                      child: (photoUrl == null || photoUrl.isEmpty)
+                          ? Text(_userInitial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                          : null,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(user.displayName ?? "S.INC Member", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                          Text(user.email ?? "", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          Text(user?.displayName ?? "Official Procrastinator", 
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          Text(user?.email ?? "", 
+                            style: const TextStyle(fontSize: 11, color: Colors.grey)),
                         ],
                       ),
                     ),
@@ -800,16 +854,13 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
                 ),
                 const Divider(height: 32),
                 
-                // SYNC STATUS
                 _buildModalRow(Icons.sync, "Status", "Cloud Secured"),
                 _buildModalRow(Icons.history, "Last Sync", "Just now"),
                 
                 const SizedBox(height: 24),
-
-                // BETA ACCESS BUTTON (Hides automatically when approved)
                 
 
-                // STATUS INDICATOR
+                // AI STATUS INDICATOR
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
@@ -820,9 +871,9 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text("AI STATUS", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey)),
+                      const Text("Beta Status", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey)),
                       Text(
-                        settings.isBetaApproved ? "ACCEPTED" : "PENDING REVIEW",
+                        settings.isBetaApproved ? "Authorized" : "Pending with Dev",
                         style: TextStyle(
                           fontSize: 9, 
                           fontWeight: FontWeight.bold, 
@@ -836,7 +887,9 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
                 const SizedBox(height: 24),
                 TextButton(
                   onPressed: () async {
+                    // 🔥 THE LOGOUT CLEANUP
                     await SyncService().signOut();
+                    await StorageService.clearAuthHint(); // Clear the hardware vault
                     if (context.mounted) Navigator.pop(context);
                   },
                   child: const Text("LOG OUT", style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
@@ -855,77 +908,99 @@ L.d("🔍 S.INC Audit: User: ${currentUser?.email}, AI Enabled: ${settings.isAiE
 
     // --- SMART IDENTITY HELPERS ---
 
-    Widget _buildSyncProfileButton(BuildContext context) {
-    final settings = Provider.of<SettingsService>(context);
-    final isDark = settings.isDarkMode;
-    final themeColor = _getThemeColor(settings.themeColor);
-    
-    // Use current Firebase user directly (Provider will trigger a rebuild on changes)
-    final user = FirebaseAuth.instance.currentUser;
-    final bool isLoggedIn = user != null;
-    
-    // Get initial or cloud icon
-    final String initial = isLoggedIn 
-        ? (user.displayName?.isNotEmpty == true ? user.displayName![0].toUpperCase() : "U") 
-        : "!";
+   Widget _buildSyncProfileButton(BuildContext context) {
+  final settings = Provider.of<SettingsService>(context);
+  final isDark = settings.isDarkMode;
+  final themeColor = _getThemeColor(settings.themeColor);
 
-    final Color contentColor = isDark ? Colors.white.withValues(alpha: 0.9) : const Color(0xFF1E293B);
+  // Use the local variables set in initState for instant loading
+  final bool isLoggedIn = _isCloudSynced;
+  final String? photoUrl = _userPhotoUrl;
+  final String initial = isLoggedIn && _userInitial.isNotEmpty
+      ? _userInitial.toUpperCase()
+      : "!";
 
-    return GestureDetector(
-      onTap: () => _showGlobalIdentityModal(context, settings), // Unified Modal
-      child: Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            )
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(50),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 500),
-              width: 44, height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isDark 
-                    ? Colors.white.withValues(alpha: 0.1) 
-                    : Colors.black.withValues(alpha: 0.05),
-                border: Border.all(
-                  // THEME RING: Glows with the theme color only when logged in
-                  color: isLoggedIn 
-                      ? themeColor.withValues(alpha: 0.8) 
-                      : contentColor.withValues(alpha: 0.2), 
-                  width: 2.0,
-                ),
+  final Color contentColor = isDark 
+      ? Colors.white.withValues(alpha: 0.9) 
+      : const Color(0xFF1E293B);
+
+  return GestureDetector(
+    onTap: () => _showGlobalIdentityModal(context, settings),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 500),
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(50),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.1)
+                  : Colors.black.withValues(alpha: 0.05),
+              border: Border.all(
+                // THEME RING: Glows with theme color when logged in
+                color: isLoggedIn
+                    ? themeColor.withValues(alpha: 0.8)
+                    : contentColor.withValues(alpha: 0.2),
+                width: 2.0,
               ),
-              child: Center(
-                child: isLoggedIn 
-                  ? Text(
-                      initial,
-                      style: TextStyle(
-                        fontSize: 18, 
-                        fontWeight: FontWeight.bold, 
-                        color: contentColor,
-                      ),
-                    )
+            ),
+            child: Center(
+              child: isLoggedIn
+                  ? (photoUrl != null && photoUrl.isNotEmpty)
+                      ? ClipOval(
+                          child: Image.network(
+                            photoUrl,
+                            width: 40, // Slightly smaller than container to show border
+                            height: 40,
+                            fit: BoxFit.cover,
+                            // Fallback if image fails to load or user is offline
+                            errorBuilder: (context, error, stackTrace) => Text(
+                              initial,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: contentColor,
+                              ),
+                            ),
+                          ),
+                        )
+                      : Text(
+                          initial,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: contentColor,
+                          ),
+                        )
                   : Icon(
-                      Icons.cloud_off, 
-                      size: 20, 
+                      Icons.cloud_off,
+                      size: 20,
                       color: contentColor.withValues(alpha: 0.5),
                     ),
-              ),
             ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
     
 

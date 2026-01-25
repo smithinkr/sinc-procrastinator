@@ -162,13 +162,15 @@ SettingsService();
   // We must immediately tell the Notification engine to reschedule.
   // We need to fetch the tasks from storage so the brief isn't empty!
   try {
-    final tasks = await StorageService.loadTasks(); 
+    final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final tasks = await StorageService.loadTasks(currentUid);
     
     // We call the service directly to overwrite the old schedule
     await NotificationService().updateNotifications(
       allTasks: tasks,
       briefHour: hour,
       briefMinute: minute,
+      uid: currentUid, // Pass it here too for consistency
     );
 
     L.d("🔔 S.INC: Morning Brief rescheduled to ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}");

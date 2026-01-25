@@ -3,6 +3,7 @@
   import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:procrastinator/utils/logger.dart';
   import '../models/task_model.dart';
+  import '../services/storage_service.dart';
 
   class SyncService {
     // Add this line to ensure only ONE instance exists
@@ -29,36 +30,50 @@ import 'package:procrastinator/utils/logger.dart';
     }
 
     Future<User?> signInWithGoogle() async {
-    try {
-      // 1. 🔥 PERSISTENCE CHECK: Try to sign in silently first.
-      // If the app was killed from memory, this finds the existing session 
-      // on the device (S23 FE / OnePlus) without showing a popup.
-      GoogleSignInAccount? googleUser = await _googleSignIn.signInSilently();
+  try {
+    // 1. Get the Google Account (Silent or Popup)
+    GoogleSignInAccount? googleUser = await _googleSignIn.signInSilently();
+    googleUser ??= await _googleSignIn.signIn();
+    if (googleUser == null) return null;
 
-      // 2. FALLBACK: If silent failed (first login or session expired), show the popup.
-      googleUser ??= await _googleSignIn.signIn();
-      if (googleUser == null) return null;
+    // 2. IMMEDIATE PHOTO CHECK 📸
+    // Check it here, directly from the Google object, before it gets 
+    // "lost" in the Firebase translation.
+    L.d("📸 S.INC: GOOGLE PHOTO URL: ${googleUser.photoUrl}");
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    // 3. Get Tokens from Google
+    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
 
-      // Debugging: Keeping your Photo URL verification
-      L.d("📸 S.INC: GOOGLE PHOTO URL: ${googleUser.photoUrl}");
+    // 4. Create the Credential (Must be BEFORE Step 5)
+    final AuthCredential credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
 
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      // 3. HANDSHAKE: Sign into Firebase with the Google credentials
-      final UserCredential userCredential = await _auth.signInWithCredential(credential);
-      
-      L.d("☁️ S.INC: Session secured for ${userCredential.user?.email}");
-      return userCredential.user;
-    } catch (e) {
-      L.d("🚨 S.INC Sign-In Error: $e");
-      return null;
+    // 5. Sign into Firebase
+    final UserCredential userCredential = await _auth.signInWithCredential(credential);
+    
+    // 6. Save the "Auth Hint" for our Instant-Login logic
+    if (userCredential.user != null) {
+      final String initial = userCredential.user!.displayName?.isNotEmpty == true 
+          ? userCredential.user!.displayName![0].toUpperCase() 
+          : "U";
+      // Capture the Google Photo URL specifically
+  final String? photoUrl = googleUser.photoUrl;
+      await StorageService.saveAuthHint(
+    initial: initial, 
+    isActive: true, 
+    photoUrl: photoUrl,
+  );
     }
+
+    L.d("☁️ S.INC: Session secured for ${userCredential.user?.email}");
+    return userCredential.user;
+  } catch (e) {
+    L.d("🚨 S.INC Sign-In Error: $e");
+    return null;
   }
+}
 
     Future<void> signOut() async {
       await _googleSignIn.signOut();

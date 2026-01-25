@@ -6,6 +6,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../models/task_model.dart';
 import '../services/storage_service.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse notificationResponse) {
@@ -14,6 +15,7 @@ void notificationTapBackground(NotificationResponse notificationResponse) {
   L.d('SYSTEM: Notification action triggered in background: ${notificationResponse.payload}');
 }
 class NotificationService {
+  
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
@@ -88,10 +90,13 @@ class NotificationService {
       final int savedMinute = await StorageService.getBriefMinute() ?? 0;
 
       // Note: This also uses 'await' to ensure the schedule is locked into Android
-      await updateNotifications(
-        briefHour: savedHour, 
-        briefMinute: savedMinute,
-      );
+     // --- AFTER (THE S.INC FIX) ---
+final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+await updateNotifications(
+  briefHour: savedHour, 
+  briefMinute: savedMinute,
+  uid: currentUid, // 🔥 Pass the ID so the first load is user-specific
+);
       
       L.d("SYSTEM: Notification Service Auto-Initialized at $savedHour:${savedMinute.toString().padLeft(2, '0')}");
     } catch (e) {
@@ -104,12 +109,13 @@ class NotificationService {
     List<Task>? allTasks,
     required int briefHour,
     required int briefMinute,
+    String? uid,
   }) async {
     // 1. Clear all existing to prevent duplicate "ghost" alarms
     await _notifications.cancelAll(); 
-
+    final String? effectiveUid = uid ?? FirebaseAuth.instance.currentUser?.uid;
     // 2. Load latest tasks from storage if called from SettingsPage
-    List<Task> tasksToSchedule = allTasks ?? await StorageService.loadTasks();
+    List<Task> tasksToSchedule = allTasks ?? await StorageService.loadTasks(effectiveUid);
 
     // 3. Schedule Daily Brief
     await _scheduleDailyBriefing(tasksToSchedule, briefHour, briefMinute);
@@ -120,8 +126,9 @@ class NotificationService {
       await _scheduleCriticalAlert(task);
     }
 
-    L.d("SYSTEM: Notifications Refreshed (Tasks: ${tasksToSchedule.length})");
+    L.d("SYSTEM: Notifications Refreshed for ${effectiveUid ?? 'guest'} (Tasks: ${tasksToSchedule.length})");
   }
+  
   @pragma('vm:entry-point')
   Future<void> _scheduleDailyBriefing(List<Task> allTasks, int hour, int minute) async {
     final now = tz.TZDateTime.now(tz.local);
@@ -131,7 +138,7 @@ class NotificationService {
     
     // 2. CRITICAL FIX: If the time is within 60 seconds of now or passed, 
     // we MUST schedule for the next day to prevent the 'Past Alarm' ignore bug.
-    if (scheduledDate.isBefore(now.add(const Duration(seconds: 5)))) {
+    if (scheduledDate.isBefore(now.add(const Duration(seconds: 30)))) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
 

@@ -7,6 +7,7 @@
   import '../utils/logger.dart'; // This connects the 'L' to its definition
   import '/env/secrets.dart'; // Add this to connect the vault to the service
   
+  
 
   class GeminiService {
   static const String _baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
@@ -123,6 +124,11 @@
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final String rawText = data['candidates'][0]['content']['parts'][0]['text'];
+        // 🔥 THE S.INC DEBUG TAP: Log the full, unparsed AI brain output
+  L.d("🤖 [AI RAW OUTPUT]:\n$rawText"); 
+  
+  // Use debugPrint if L.d truncates long text on your S23 FE
+  // debugPrint("🤖 [AI FULL JSON]: $rawText");
         return _parseAiResponse(rawText, input is String ? input : "Audio Task");
       } else if (response.statusCode == 429) {
         _lastRequestTime = DateTime.now().add(const Duration(seconds: 60));
@@ -141,6 +147,9 @@
   static String _buildSecureTaskPrompt(String input, double creativity, {Task? preParsedTask}) {
   final now = DateTime.now();
   _sanitizeForSecurity(input);
+  // 🔥 THE HANDSHAKE: Capture the actual digital value from the King (Parser)
+  final String localIsoDate = preParsedTask?.exactDate?.toIso8601String() ?? "NULL";
+  final bool localHasTime = preParsedTask?.hasSpecificTime ?? false;
 
   // 1. DEPTH SCALE
   // Instead of limiting steps, we define the "Depth" of the logic.
@@ -174,26 +183,35 @@
 
     [PHASE 2: CATEGORY & PRIORITY]
     - Assign "Work", "Personal", "Shopping", or "General".
-    - Data/Time: If the local system found a date (${preParsedTask?.dueDate}), preserve it.
+
+    [PHASE 2: DATE GOVERNANCE (THE LAW)]
+    - Today's Date: ${now.year}-${now.month}-${now.day}
+    - LOCAL TRUTH: $localIsoDate (Specific Time: $localHasTime)
     
-    Today's Date: ${now.year}-${now.month}-${now.day}
+    - RULE 1: If LOCAL TRUTH is not "NULL", you MUST use it. Copy $localIsoDate exactly into "exactDate".
+    - RULE 2: If LOCAL TRUTH is "NULL", only generate an "exactDate" if the user explicitly mentions a time or date (e.g., "end of the month", "at 5pm"). 
+    - RULE 3: If no date/time is mentioned, "exactDate" MUST be null. NEVER hallucinate a date.
+    - RULE 4: All "exactDate" values must be valid ISO8601 strings.
 
     [USER INPUT]
     "$input"
 
     [STRICT JSON OUTPUT]
-    Return ONLY raw JSON. No markdown, no commentary.
+    Return ONLY raw JSON.
     {
-      "title": "Refined Project Name",
+      "title": "Refined Name",
       "priority": "High/Medium/Low",
       "category": "Work/Personal/Shopping/General",
-      "dueDate": "Preserve local or suggest",
+      "dueDate": "Preserve local or suggest (only if the user input appears to have one)",
+      "exactDate": "ISO8601 string or null",
+      "hasSpecificTime": true/false,
       "subtasks": []
     }
   """;
 }
 
   static Task _parseAiResponse(String rawText, String originalInput) {
+    // 🔥 THE S.INC BLACK BOX LOG
   try {
     // 1. SECURE EXTRACTION (Handles markdown fences if AI ignores instructions)
     final int start = rawText.indexOf('{');
@@ -222,9 +240,9 @@
 
     // 3. DATE RECONCILIATION
     DateTime? exact;
-    if (json['exactDate'] != null && json['exactDate'] != "null") {
-      exact = DateTime.tryParse(json['exactDate'].toString());
-    }
+if (json['exactDate'] != null && json['exactDate'] != "null" && json['exactDate'] != "NULL") {
+  exact = DateTime.tryParse(json['exactDate'].toString());
+}
 
     return Task(
       id: const Uuid().v4(),

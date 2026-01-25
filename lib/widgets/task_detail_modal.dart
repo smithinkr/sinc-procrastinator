@@ -141,8 +141,12 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
 
   @override
   Widget build(BuildContext context) {
-    String dateText = _selectedDate == null ? "Set Date" : "${_selectedDate!.day}/${_selectedDate!.month}";
-    String timeText = _selectedTime == null ? "Set Time" : _selectedTime!.format(context);
+    String dateDisplay = _selectedDate == null 
+      ? "Set Date" 
+      : "${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}";
+    String timeDisplay = _selectedTime == null 
+      ? "No Time" 
+      : _selectedTime!.format(context);
 
     return GestureDetector(
       onTap: widget.onClose,
@@ -270,14 +274,14 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
                                   children: [
                                     _buildChip(
                                       icon: Icons.calendar_today,
-                                      label: _isEditing ? dateText : (widget.task.dueDate.isNotEmpty ? widget.task.dueDate.split(' ').first : dateText),
+                                      label: dateDisplay,
                                       isActive: true,
                                       onTap: _isEditing ? _pickDate : null,
                                     ),
                                     const SizedBox(width: 10),
                                     _buildChip(
                                       icon: Icons.access_time,
-                                      label: _isEditing ? timeText : (widget.task.hasSpecificTime ? widget.task.dueDate.split(' ').last : "No Time"),
+                                      label: timeDisplay,
                                       isActive: _isEditing && _selectedDate != null,
                                       onTap: (_isEditing && _selectedDate != null) ? _pickTime : null,
                                       isHighlight: _isEditing && _selectedDate != null,
@@ -348,6 +352,29 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
                               ),
                             
                             const SizedBox(height: 24),
+                            if (widget.isPreview && widget.task.exactDate != null && !_isEditing)
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Row(
+          children: [
+            Icon(
+          widget.task.isAiGenerated ? Icons.auto_awesome : Icons.calendar_month_rounded, 
+          size: 16, 
+          color: Colors.indigoAccent
+        ),
+        const SizedBox(width: 8),
+            Text(
+              // 🔥 THE CLEAN INTERPOLATION: We use ${} for everything
+  '${widget.task.isAiGenerated ? "AI SCHEDULE: " : "SCHEDULED: "}'
+  '${widget.task.exactDate!.day}/${widget.task.exactDate!.month}'
+  '${widget.task.hasSpecificTime ? " @ ${TimeOfDay.fromDateTime(widget.task.exactDate!).format(context)}" : ""}',
+              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigoAccent, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+
+    const SizedBox(height: 24),
                             
                             if (widget.task.subtasks.isNotEmpty) ...[
                               const Text("SUBTASKS", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),

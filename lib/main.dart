@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:provider/provider.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
+import '../services/storage_service.dart';
 
 
 // 1. Secrets import
@@ -36,13 +37,19 @@ void main() async {
   if (Secrets.geminiApiKey.isNotEmpty) {
     await settingsService.initializeVaultedKey(Secrets.geminiApiKey);
   }
-  // ----------------------------
+  // 1. Check the local encrypted hardware vault (Instant)
+  final authHint = await StorageService.getAuthHint();
+  final bool startLoggedIn = authHint != null && authHint['isActive'] == true;
+  final String userInitial = authHint?['initial'] ?? "";
 
   // 5. Run App
   runApp(
     ChangeNotifierProvider.value(
       value: settingsService,
-      child: const MyApp(),
+      child: MyApp(
+        isLoggedIn: startLoggedIn, 
+        initial: userInitial,
+      ),
     ),
   );
   // 🔥 THE SURGICAL ADDITION: 
@@ -53,7 +60,14 @@ void main() async {
 
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool isLoggedIn;
+  final String initial;
+
+  const MyApp({
+    super.key, 
+    required this.isLoggedIn, 
+    required this.initial,
+  });
 
   Color _getThemeColor(String colorName) {
     switch (colorName) {
@@ -90,7 +104,10 @@ class MyApp extends StatelessWidget {
       // We removed the StreamBuilder from here entirely.
       // This makes HomeScreen the "Root" that never restarts or resets.
       // Your HomeScreen's internal initState already handles Auth logic silently.
-      home: const HomeScreen(),
+      home: HomeScreen(
+        startLoggedIn: isLoggedIn, 
+        userInitial: initial
+      ),
     );
   }
 }

@@ -6,11 +6,13 @@ import 'package:encrypt/encrypt.dart' as encrypt;
 import '../models/task_model.dart';
 import 'security_service.dart';
 
+
 class StorageService {
   // Using a new key for V2 to avoid format conflicts with old CBC data
-  static const String _tasksKey = 'procrastinator_tasks_secure_v2';
-  static const String _masterKeyName = 'task_encryption_master_key_v2';   
-
+  static const String _masterKeyName = 'task_encryption_master_key_v2'; 
+  static const String _authKey = 'procrastinator_auth_hint_v2';  
+  static const String _baseTaskKey = 'procrastinator_tasks_';
+  
   /// --- INTERNAL HELPERS ---
   static Future<int?> getBriefHour() async {
     final prefs = await SharedPreferences.getInstance();
@@ -51,21 +53,26 @@ class StorageService {
 
   /// --- PUBLIC API ---
 
-  static Future<void> saveTasks(List<Task> tasks) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = await _getEncryptionKey();
+  static Future<void> saveTasks(List<Task> tasks, String? uid) async {
+  final prefs = await SharedPreferences.getInstance();
+  final key = await _getEncryptionKey();
 
-    // Map tasks to JSON first to simplify data transfer to the isolate
-    final List<Map<String, dynamic>> taskMap = tasks.map((t) => t.toJson()).toList();
+  // 🔥 THE WALL: Determine which specific vault to open
+  final String storageKey = "$_baseTaskKey${uid ?? 'guest'}";
 
-    // Move encryption to a background thread to prevent UI freeze
-    final String secureData = await compute(_encryptWorker, {
-      'tasksJson': jsonEncode(taskMap),
-      'key': key,
-    });
+  // Map tasks to JSON
+  final List<Map<String, dynamic>> taskMap = tasks.map((t) => t.toJson()).toList();
 
-    await prefs.setString(_tasksKey, secureData);
-  }
+  // MOVE TO ISOLATE: Encrypt in the background to prevent UI stutter
+  final String secureData = await compute(_encryptWorker, {
+    'tasksJson': jsonEncode(taskMap),
+    'key': key,
+  });
+
+  await prefs.setString(storageKey, secureData);
+  L.d("🔒 S.INC: Data secured in vault: $storageKey");
+}
+
   static Future<void> clearAll() async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -76,28 +83,34 @@ class StorageService {
   }
 }
 
-  static Future<List<Task>> loadTasks() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? rawData = prefs.getString(_tasksKey);
+ static Future<List<Task>> loadTasks(String? uid) async {
+  final prefs = await SharedPreferences.getInstance();
+  
+  // 🔥 THE WALL: Look for the specific passport-matched file
+  final String storageKey = "$_baseTaskKey${uid ?? 'guest'}";
+  final String? rawData = prefs.getString(storageKey);
 
-    if (rawData == null || !rawData.contains(':')) return [];
-
-    try {
-      final key = await _getEncryptionKey();
-
-      // Move decryption to a background thread to prevent UI freeze
-      final String decryptedJson = await compute(_decryptWorker, {
-        'rawData': rawData,
-        'key': key,
-      });
-
-      final List<dynamic> decoded = jsonDecode(decryptedJson);
-      return decoded.map((item) => Task.fromJson(item)).toList();
-    } catch (e) {
-      L.d("🚨 STORAGE_SERVICE ERROR: Tampering or corruption detected. $e");
-      return [];
-    }
+  if (rawData == null || !rawData.contains(':')) {
+    L.d("📂 S.INC: No existing vault found for $storageKey. Starting fresh.");
+    return [];
   }
+
+  try {
+    final key = await _getEncryptionKey();
+
+    // MOVE TO ISOLATE: Decrypt in the background
+    final String decryptedJson = await compute(_decryptWorker, {
+      'rawData': rawData,
+      'key': key,
+    });
+
+    final List<dynamic> decoded = jsonDecode(decryptedJson);
+    return decoded.map((item) => Task.fromJson(item)).toList();
+  } catch (e) {
+    L.d("🚨 S.INC STORAGE ERROR: Tampering or corruption detected in $storageKey. $e");
+    return [];
+  }
+}
 
   /// --- BACKGROUND WORKERS (ISOLATES) ---
 
@@ -132,4 +145,50 @@ class StorageService {
     // tag check will fail here and throw an exception.
     return encrypter.decrypt(encryptedContent, iv: iv);
   }
+  static Future<void> saveAuthHint({
+  required String initial, 
+  required bool isActive, 
+  String? photoUrl, // Nullable, because a user might not have a photo
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final key = await _getEncryptionKey();
+
+  final Map<String, dynamic> authData = {
+    'initial': initial,
+    'isActive': isActive,
+    'photoUrl': photoUrl,
+    'lastCheck': DateTime.now().toIso8601String(),
+  };
+
+  final String secureData = await compute(_encryptWorker, {
+    'tasksJson': jsonEncode(authData), // We reuse the worker logic
+    'key': key,
+  });
+
+  await prefs.setString(_authKey, secureData);
+}
+
+static Future<Map<String, dynamic>?> getAuthHint() async {
+  final prefs = await SharedPreferences.getInstance();
+  final String? rawData = prefs.getString(_authKey);
+
+  if (rawData == null || !rawData.contains(':')) return null;
+
+  try {
+    final key = await _getEncryptionKey();
+    final String decryptedJson = await compute(_decryptWorker, {
+      'rawData': rawData,
+      'key': key,
+    });
+
+    return jsonDecode(decryptedJson);
+  } catch (e) {
+    return null;
+  }
+}
+
+static Future<void> clearAuthHint() async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove(_authKey);
+}
 }
