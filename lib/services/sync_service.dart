@@ -14,14 +14,11 @@ import 'package:procrastinator/utils/logger.dart';
     final FirebaseFirestore _db = FirebaseFirestore.instance;
     
     // 1. Enhanced Scopes: Explicitly requesting 'profile' ensures the photo URL is sent
-    final GoogleSignIn _googleSignIn = GoogleSignIn(
-      scopes: [
-        'email',
-        'https://www.googleapis.com/auth/userinfo.profile',
-        'openid',
-      ],
-    );
-
+   // 🛡️ S.INC SHIELD: Modern 2026 Constructor
+// 🛡️ S.INC SHIELD: Explicit generic type initialization
+// ✅ USE THE MODERN SINGLETON
+// 🛡️ S.INC SHIELD: We use the Singleton instance 
+  final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
     // 2. Track Last Sync locally for the UI to display
     static DateTime? lastSyncedAt;
 
@@ -29,48 +26,72 @@ import 'package:procrastinator/utils/logger.dart';
       return _auth.currentUser?.uid;
     }
 
-    Future<User?> signInWithGoogle() async {
+    // 🛡️ S.INC SHIELD: The "Handshake" Guard
+  bool _isInitialized = false;
+
+  Future<void> _ensureInitialized() async {
+    if (!_isInitialized) {
+      // 🕵️ CRITICAL: Paste your Web Client ID from Firebase Console here
+      await _googleSignIn.initialize(
+        serverClientId: 'YOUR_CLIENT_ID_FROM_FIREBASE.apps.googleusercontent.com',
+      );
+      _isInitialized = true;
+    }
+  }
+
+  Future<User?> signInWithGoogle() async {
   try {
-    // 1. Get the Google Account (Silent or Popup)
-    GoogleSignInAccount? googleUser = await _googleSignIn.signInSilently();
-    googleUser ??= await _googleSignIn.signIn();
-    if (googleUser == null) return null;
-
-    // 2. IMMEDIATE PHOTO CHECK 📸
-    // Check it here, directly from the Google object, before it gets 
-    // "lost" in the Firebase translation.
-    L.d("📸 S.INC: GOOGLE PHOTO URL: ${googleUser.photoUrl}");
-
-    // 3. Get Tokens from Google
-    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-    // 4. Create the Credential (Must be BEFORE Step 5)
-    final AuthCredential credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken: googleAuth.idToken,
+    await _ensureInitialized();
+    // 🛡️ S.INC SHIELD: Mandatory 2026 Warm-up
+      await _googleSignIn.initialize(
+      serverClientId: '31245559081-i1mjcihhc5fr6edobt1vdh00um0ve0ra.apps.googleusercontent.com',
     );
+    // 1. THE AUTOMATIC RE-ENTRY (No UI)
+    // This looks for an existing session. If found, it skips the modal logic.
+    GoogleSignInAccount? googleUser = await _googleSignIn.attemptLightweightAuthentication();
 
-    // 5. Sign into Firebase
-    final UserCredential userCredential = await _auth.signInWithCredential(credential);
-    
-    // 6. Save the "Auth Hint" for our Instant-Login logic
-    if (userCredential.user != null) {
-      final String initial = userCredential.user!.displayName?.isNotEmpty == true 
-          ? userCredential.user!.displayName![0].toUpperCase() 
-          : "U";
-      // Capture the Google Photo URL specifically
-  final String? photoUrl = googleUser.photoUrl;
-      await StorageService.saveAuthHint(
-    initial: initial, 
-    isActive: true, 
-    photoUrl: photoUrl,
-  );
+    // 2. THE MODAL FALLBACK (Only for fresh logins)
+    if (googleUser == null) {
+      L.d("☁️ S.INC: No cached session. Triggering UI Handshake...");
+      
+      
+      // ✅ In v7.0+, authenticate() returns non-null or throws. 
+      // This is why the compiler called your previous null-check "Dead Code".
+      googleUser = await _googleSignIn.authenticate();
     }
 
-    L.d("☁️ S.INC: Session secured for ${userCredential.user?.email}");
+  
+
+    // 🛡️ S.INC SHIELD: Since authenticate() can throw rather than return null,
+    // we handle the "User Backed Out" logic in the 'catch' block below.
+
+    // 3. THE 2026 AUTHORIZATION STEP
+    final auth = await googleUser.authorizationClient.authorizeScopes([
+      'email', 
+      'openid', 
+      'https://www.googleapis.com/auth/userinfo.profile'
+    ]);
+
+    final AuthCredential credential = GoogleAuthProvider.credential(
+      accessToken: auth.accessToken, // 👈 Uses 'auth' variable
+      idToken: googleUser.authentication.idToken,
+    );
+
+    // 4. SECURE FIREBASE SESSION
+    final UserCredential userCredential = await _auth.signInWithCredential(credential);
+    
+    if (userCredential.user != null) {
+      await StorageService.saveAuthHint(
+        initial: (userCredential.user!.displayName ?? "U")[0].toUpperCase(), 
+        isActive: true, 
+        photoUrl: googleUser.photoUrl,
+      );
+    }
+
     return userCredential.user;
   } catch (e) {
-    L.d("🚨 S.INC Sign-In Error: $e");
+    // 🕵️ This is where we catch "User closed the modal" or "No SHA-1 match"
+    L.d("🚨 S.INC Auth Error: $e");
     return null;
   }
 }
@@ -110,24 +131,33 @@ Future<void> deleteUserAccount() async {
   if (user == null) return;
 
   try {
-    // 1. RE-AUTH (Fresh Handshake)
-    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-    final GoogleSignInAuthentication? googleAuth = await googleUser?.authentication;
+    // 1. RE-AUTH (The 2026 Handshake)
+    // Removed '?' because authenticate() is now non-nullable or throws an error.
+    final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
 
-    if (googleAuth != null) {
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-      await user.reauthenticateWithCredential(credential);
-    }
+    // 🛡️ S.INC SHIELD: The NEW step to get the accessToken
+    // Re-authentication requires the same scopes used during login.
+    final authorization = await googleUser.authorizationClient.authorizeScopes([
+      'email',
+      'openid',
+    ]);
 
-    // 2. WIPE FIRESTORE FIRST (While Auth is still valid)
-    // This is where your PERMISSION_DENIED was happening
+    // Removed 'await' because .authentication is now a synchronous getter.
+    final googleAuth = googleUser.authentication;
+
+    // Create the credential using the new authorization object
+    final AuthCredential credential = GoogleAuthProvider.credential(
+      accessToken: authorization.accessToken, // FIXED: No longer undefined
+      idToken: googleAuth.idToken,
+    );
+
+    // Perform the security re-authentication
+    await user.reauthenticateWithCredential(credential);
+
+    // 2. WIPE FIRESTORE (Authoritative Wipe)
     L.d("🗑️ S.INC: Wiping Firestore document for ${user.uid}...");
     await _db.collection('users').doc(user.uid).delete();
     
-    // Optional: Wipe the beta request too
     await _db.collection('beta_requests').doc(user.uid).delete();
 
     // 3. FINALLY DELETE AUTH ACCOUNT

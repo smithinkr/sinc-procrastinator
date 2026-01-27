@@ -5,7 +5,7 @@ class SecurityService {
   static const _storage = FlutterSecureStorage(
     // EncryptedSharedPreferences uses the Android Keystore (Hardware Security)
     aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
+      
       resetOnError: true, // Crucial: Prevents crashes if the Keystore is corrupted
     ),
     iOptions: IOSOptions(

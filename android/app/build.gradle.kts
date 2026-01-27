@@ -79,5 +79,6 @@ flutter {
 }
 
 dependencies {
-    add("coreLibraryDesugaring", "com.android.tools:desugar_jdk_libs:2.0.4")
+    // 🛡️ S.INC SHIELD: Modern 2026 Library Desugaring
+add("coreLibraryDesugaring", "com.android.tools:desugar_jdk_libs:2.1.4")
 }

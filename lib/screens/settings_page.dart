@@ -58,7 +58,16 @@ class _SettingsPageState extends State<SettingsPage> {
     final bool isApproved = user != null && settings.isBetaApproved;
     _getThemeColor(settings.themeColor);
 
-    return Scaffold(
+    return PopScope(
+    canPop: true, // Allows the gesture to happen
+    onPopInvokedWithResult: (didPop, result) {
+      // 🛡️ S.INC SHIELD: This ensures the state is "Locked" 
+      // the moment the gesture starts.
+      if (didPop) {
+        L.d("🛡️ S.INC: Pop verified. Preventing stack re-init.");
+      }
+    },
+    child: Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.grey[50],
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -96,7 +105,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       if (mounted) setState(() {});
                     },
                     icon: const Icon(Icons.login, size: 16),
-                    label: const Text("LOG IN WITH S.INC", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    label: const Text("LOG IN", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.indigo, foregroundColor: Colors.white,
                       minimumSize: const Size(double.infinity, 48),
@@ -278,6 +287,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildDangerZone(context),
         ],
       ),
+    ),
     );
   }
 

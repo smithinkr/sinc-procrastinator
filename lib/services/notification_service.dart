@@ -8,6 +8,7 @@ import '../services/storage_service.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse notificationResponse) {
   // ✅ Use your logger instead of print
@@ -51,7 +52,7 @@ class NotificationService {
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
     await _notifications.initialize(
-      const InitializationSettings(android: initializationSettingsAndroid),
+      settings: const InitializationSettings(android: initializationSettingsAndroid),
       onDidReceiveNotificationResponse: (details) {
         L.d("Foreground notification clicked");
       },
@@ -152,11 +153,12 @@ await updateNotifications(
     String message = getSassyBriefing(n, x, isWeekend);
 
     await _notifications.zonedSchedule(
-      _dailyId,
-      "Morning Reality Check", 
-      message,                  
-      scheduledDate,
-      const NotificationDetails(
+      
+      id: _dailyId,
+      title: "Morning Reality Check", 
+      body: message,                  
+      scheduledDate: scheduledDate,
+      notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           _channelIdDaily, 
           'Daily Briefing',
@@ -168,7 +170,6 @@ await updateNotifications(
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time, // Re-enables daily repetition
     );
     
@@ -190,11 +191,11 @@ await updateNotifications(
 
     if (scheduledDate.isAfter(now)) {
       await _notifications.zonedSchedule(
-        task.id.hashCode,
-        "DUE SOON: ${task.title}",
-        "This has a deadline. Let's blame the app devs for missing it.",
-        scheduledDate,
-        const NotificationDetails(
+        id: task.id.hashCode,
+        title: "DUE SOON: ${task.title}",
+        body: "This has a deadline. Let's blame the app devs for missing it.",
+        scheduledDate: scheduledDate,
+        notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             _channelIdCritical, 
             'Critical Tasks',
@@ -205,7 +206,6 @@ await updateNotifications(
           ),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       );
     }
   }
@@ -234,10 +234,10 @@ await updateNotifications(
 
   Future<void> testNotificationNow() async {
     await _notifications.show(
-      999,
-      "🔔 Hardware Test",
-      "If you see this, the notification system is working perfectly.",
-      const NotificationDetails(
+      id: 999,
+      title: "🔔 Hardware Test",
+      body: "If you see this, the notification system is working perfectly.",
+      notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           _channelIdDaily,
           'Daily Briefing',

@@ -6,7 +6,8 @@ void main() {
   testWidgets('Procrastinator boot test', (WidgetTester tester) async {
     // 🛡️ S.INC FIX: Remove 'isLoggedIn' as it is now handled by the Stream
     await tester.pumpWidget(const MyApp(
-      initial: '', // We only pass 'initial' now
+      initial: 'a', // We only pass 'initial' now,
+      isReturning: true,
     ));
 
     // Verify that the app starts. 
