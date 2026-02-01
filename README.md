@@ -1,4 +1,11 @@
 # S.INC | Procrastinator 
+
+<p align="center">
+  <a href="https://github.com/smithinkr/sinc-procrastinator/releases/latest">
+    <img src="https://img.shields.io/badge/Download-S.Inc%20Procrastinator-2bbdb3?style=for-the-badge&logo=android&logoColor=white" />
+  </a>
+</p>
+
 > Precision Task Management for the Forgetful Professional
 
 [S.INC Branding] [Build-Status] [Platform: Android/OnePlus/Samsung]
