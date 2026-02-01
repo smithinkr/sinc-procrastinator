@@ -1,16 +1,15 @@
-import 'dart:async'; // MANDATORY: For Beta Listener
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:procrastinator/utils/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // MANDATORY: For Beta Check
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'storage_service.dart';
 import 'notification_service.dart';
-import 'security_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
- // Ensure this is there too
+// import 'security_service.dart'; // 🧊 FROZEN: Re-enable for local key vaulting
 
 class SettingsService with ChangeNotifier {
-  String _themeColor = 'indigo';
+  String _themeColor = 'emerald';
   bool _isDarkMode = false;
   double _aiCreativity = 0.7; 
   bool _isAiEnabled = false; 
@@ -18,14 +17,9 @@ class SettingsService with ChangeNotifier {
   int _briefMinute = 0;
   bool _isHudEnabled = true;
   bool _isBetaApproved = false;
-  
-  
-  // ADD THIS CONSTRUCTOR:
-SettingsService();
 
-  // --- NEW BETA STATE (MANDATORY) ---
-  
- 
+  SettingsService();
+
   StreamSubscription<DocumentSnapshot>? _betaListener;
 
   // --- GETTERS ---
@@ -36,52 +30,46 @@ SettingsService();
   int get briefHour => _briefHour;
   int get briefMinute => _briefMinute;
   bool get isHudEnabled => _isHudEnabled;
-  bool get isBetaApproved => _isBetaApproved; // FIXES HOMESCREEN ERROR
+  bool get isBetaApproved => _isBetaApproved;
 
-  // --- NEW BETA LISTENER (MANDATORY) ---
-
+  // --- ⚡ BETA STATUS LISTENER ---
   void startBetaStatusListener() {
-  stopBetaListener(); // Clean up old listeners
+    stopBetaListener(); 
 
-  // 1. IDENTITY AUDITOR 
-  // We moved this here from the constructor. It now waits for main.dart to trigger it.
-  FirebaseAuth.instance.authStateChanges().listen((user) {
-    if (user != null) {
-      L.d("👤 IDENTITY: User confirmed (${user.uid}). Syncing Beta Status...");
-      
-      // 2. YOUR ORIGINAL FIRESTORE LOGIC
-      // Now safely nested and triggered only when a user is present.
-      _betaListener = FirebaseFirestore.instance 
-          .collection('users')
-          .doc(user.uid)
-          .snapshots()
-          .listen((snapshot) async {
-            if (snapshot.exists && snapshot.data() != null) {
-              final data = snapshot.data() as Map<String, dynamic>;
-              _isBetaApproved = data['isBetaApproved'] ?? false;
-              
-              // Auto-unlock AI if approved
-              if (_isBetaApproved && !_isAiEnabled) {
-                _isAiEnabled = true;
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('isAiEnabled', true);
-                L.d("🔓 S.INC: AI Features auto-unlocked for approved beta user.");
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        L.d("👤 IDENTITY: Syncing Beta Status for ${user.uid}...");
+        
+        _betaListener = FirebaseFirestore.instance 
+            .collection('users')
+            .doc(user.uid)
+            .snapshots()
+            .listen((snapshot) async {
+              if (snapshot.exists && snapshot.data() != null) {
+                final data = snapshot.data() as Map<String, dynamic>;
+                _isBetaApproved = data['isBetaApproved'] ?? false;
+                
+                if (_isBetaApproved && !_isAiEnabled) {
+                  _isAiEnabled = true;
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('isAiEnabled', true);
+                  L.d("🔓 S.INC: AI Features auto-unlocked for approved beta user.");
+                }
+
+                if (_isBetaApproved) {
+                  L.d("✅ S.INC: User is officially approved.");
+                }
+
+                notifyListeners();
+                L.d("📡 S.INC CLOUD: Beta Status -> $_isBetaApproved");
               }
-
-              if (_isBetaApproved) {
-                L.d("✅ S.INC: User is officially approved. Clearing UI noise.");
-              }
-
-              notifyListeners();
-              L.d("📡 S.INC CLOUD: Beta Status -> $_isBetaApproved");
-            }
-          });
-    } else {
-      L.d("👤 IDENTITY: No user found. Features locked.");
-      stopBetaListener();
-    }
-  });
-}
+            });
+      } else {
+        L.d("👤 IDENTITY: No user session found.");
+        stopBetaListener();
+      }
+    });
+  }
 
   void stopBetaListener() {
     _betaListener?.cancel();
@@ -90,7 +78,7 @@ SettingsService();
     notifyListeners();
   }
 
-  /// CRITICAL CHANGE: We no longer store the API key in a String variable.
+  /* 🧊 LEGACY REVERSION POINT: Local Key Access
   Future<String> getSecureApiKey() async {
     try {
       return await SecurityService.getSecret('gemini_api_key') ?? '';
@@ -99,11 +87,12 @@ SettingsService();
       return '';
     }
   }
+  */
 
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     
-    _themeColor = prefs.getString('themeColor') ?? 'indigo';
+    _themeColor = prefs.getString('themeColor') ?? 'emerald';
     _isDarkMode = prefs.getBool('isDarkMode') ?? false;
     _aiCreativity = prefs.getDouble('aiCreativity') ?? 0.7;
     _isAiEnabled = prefs.getBool('isAiEnabled') ?? false;
@@ -111,14 +100,16 @@ SettingsService();
     _briefMinute = prefs.getInt('briefMinute') ?? 0;
     _isHudEnabled = prefs.getBool('isHudEnabled') ?? true;
 
+    /* 🧊 LEGACY REVERSION POINT: Local Key Check
     final hasKey = (await SecurityService.getSecret('gemini_api_key'))?.isNotEmpty ?? false;
     if (hasKey) {
       _isAiEnabled = true;
     }
+    */
     notifyListeners();
   }
-  
 
+  /* 🧊 LEGACY REVERSION POINT: Key Vaulting Logic
   Future<void> initializeVaultedKey(String keyFromConfig) async {
     if (keyFromConfig.isEmpty) return;
     try {
@@ -132,8 +123,9 @@ SettingsService();
       L.d("⚠️ Vault Initialization Error: $e");
     }
   }
+  */
 
-  // --- STANDARD UPDATERS (KEEPING YOUR LOGS INTACT) ---
+  // --- UPDATERS ---
   Future<void> toggleHud(bool isEnabled) async {
     _isHudEnabled = isEnabled;
     notifyListeners();
@@ -153,31 +145,25 @@ SettingsService();
     _briefHour = hour;
     _briefMinute = minute;
     notifyListeners();
-    // 1. Save to Local Storage
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setInt('briefHour', hour);
-  await prefs.setInt('briefMinute', minute);
-
-  // 🔥 THE MISSION CRITICAL ADDITION:
-  // We must immediately tell the Notification engine to reschedule.
-  // We need to fetch the tasks from storage so the brief isn't empty!
-  try {
-    final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
-    final tasks = await StorageService.loadTasks(currentUid);
     
-    // We call the service directly to overwrite the old schedule
-    await NotificationService().updateNotifications(
-      allTasks: tasks,
-      briefHour: hour,
-      briefMinute: minute,
-      uid: currentUid, // Pass it here too for consistency
-    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('briefHour', hour);
+    await prefs.setInt('briefMinute', minute);
 
-    L.d("🔔 S.INC: Morning Brief rescheduled to ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}");
-  } catch (e) {
-    L.d("🚨 S.INC: Failed to hot-swap notification schedule: $e");
-  }
-    
+    try {
+      final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+      final tasks = await StorageService.loadTasks(currentUid);
+      
+      await NotificationService().updateNotifications(
+        allTasks: tasks,
+        briefHour: hour,
+        briefMinute: minute,
+        uid: currentUid,
+      );
+      L.d("🔔 S.INC: Morning Brief rescheduled.");
+    } catch (e) {
+      L.d("🚨 S.INC: Failed to hot-swap notification schedule: $e");
+    }
   }
 
   Future<void> updateAiCreativity(double value) async {
@@ -196,7 +182,6 @@ SettingsService();
     await prefs.setBool('isDarkMode', isDark);
   }
 
-  // CLEANUP
   @override
   void dispose() {
     _betaListener?.cancel();

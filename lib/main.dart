@@ -7,9 +7,10 @@ import '../services/storage_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'; // Required for kDebugMode
 import 'package:firebase_app_check/firebase_app_check.dart'; // The security library
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // 1. Secrets import
-import 'env/secrets.dart'; 
+/*import 'env/secrets.dart';*/ 
 
 import 'screens/home_screen.dart';
 import 'services/notification_service.dart';
@@ -47,9 +48,9 @@ await FirebaseAppCheck.instance.activate(
   final settingsService = SettingsService();
   await settingsService.loadSettings();
 
-  if (Secrets.geminiApiKey.isNotEmpty) {
+  /*if (Secrets.geminiApiKey.isNotEmpty) {
     await settingsService.initializeVaultedKey(Secrets.geminiApiKey);
-  }
+  }*/
 
   // Visual Hint for the initial (fast storage)
   final authHint = await StorageService.getAuthHint();
@@ -142,44 +143,61 @@ class AuthGate extends StatelessWidget {
   const AuthGate({super.key, required this.userInitial});
 
   @override
-Widget build(BuildContext context) {
-  return StreamBuilder<User?>(
-    stream: FirebaseAuth.instance.authStateChanges(),
-    builder: (context, snapshot) {
-      // 🛡️ S.INC SHIELD: THE PERSISTENCE GUARD
-      // In Release mode, returning from Settings triggers a 'waiting' state.
-      // We check if we ALREADY HAVE data. If we do, we skip the splash screen.
-      if (snapshot.hasData && snapshot.data != null) {
-        return HomeScreen(
-          startLoggedIn: true,
-          userInitial: userInitial.isNotEmpty 
-              ? userInitial 
-              : (snapshot.data!.displayName?[0] ?? "S"),
-        );
-      }
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, authSnapshot) {
+        // --- 🛡️ S.INC SHIELD: THE PERSISTENCE GUARD ---
+        // We keep your existing check to prevent 'waiting' flickers 
+        // when returning from sub-pages in Release mode.
+        if (authSnapshot.hasData && authSnapshot.data != null) {
+          final user = authSnapshot.data!;
 
-      // 1. THE BUFFER (Only shows on absolute COLD BOOT or LOGOUT)
-      // We only enter here if there is NO data and we are still waiting.
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        return const Scaffold(
-          body: Center(
-            child: Text(
-              "Let's procrastinate in style",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          // 🔥 NEW: THE LIMBO HIJACK
+          // We nest a second stream here to check the deletion status.
+          // Because it's inside the 'hasData' block, it won't fire until Auth is solid.
+          return StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').doc(user.uid).snapshots(),
+            builder: (context, statsSnapshot) {
+              bool pending = false;
+              if (statsSnapshot.hasData && statsSnapshot.data!.exists) {
+                final data = statsSnapshot.data!.data() as Map<String, dynamic>;
+                pending = data['deletion_pending'] == true;
+              }
+              // 🟢 AUTHORITATIVE HOME: Only reaches here if NOT in Limbo
+              return HomeScreen(
+                startLoggedIn: true,
+                isDeletionPending: pending,
+                userInitial: userInitial.isNotEmpty 
+                    ? userInitial 
+                    : (user.displayName?[0] ?? "S"),
+              );
+            },
+          );
+        }
+
+        // --- 1. THE BUFFER ---
+        // Only shows on absolute COLD BOOT or intentional LOGOUT
+        if (authSnapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: Text(
+                "Let's procrastinate in style",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
             ),
-          ),
-        );
-      }
+          );
+        }
 
-      // 3. FALLBACK: User is confirmed logged out
-      return const HomeScreen(
-        startLoggedIn: false,
-        userInitial: "",
-      );
-    },
-  );
-}
-  
+        // --- 3. FALLBACK ---
+        // User is confirmed logged out
+        return const HomeScreen(
+          startLoggedIn: false,
+          userInitial: "",
+        );
+      },
+    );
+  }
 }
 // 🧭 THE TRAFFIC CONTROLLER: Decides between Hints and Auth
 class AppStartSwitcher extends StatelessWidget { // 👈 Change to StatelessWidget
@@ -196,5 +214,6 @@ class AppStartSwitcher extends StatelessWidget { // 👈 Change to StatelessWidg
       return const OnboardingScreen();
     }
   }
+  
 }
 

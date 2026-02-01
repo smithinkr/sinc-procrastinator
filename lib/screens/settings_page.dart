@@ -83,7 +83,7 @@ class _SettingsPageState extends State<SettingsPage> {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
         children: [
           // --- SECTION 1: IDENTITY PASS ---
-          _buildSectionTitle("IDENTITY PASS", isDark),
+          _buildSectionTitle("CREDENTIALS", isDark),
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(24),
@@ -164,7 +164,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 32),
 
           // --- SECTION 2: S.INC INTELLIGENCE ---
-          _buildSectionTitle("S.INC INTELLIGENCE", isDark),
+          _buildSectionTitle("AI SLOP", isDark),
           const SizedBox(height: 12),
           Column(
             children: [
@@ -173,6 +173,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   padding: EdgeInsets.only(bottom: 12),
                   child: Text("GET BETA ACCESS FOR AI SMARTNESS", style: TextStyle(color: Colors.indigoAccent, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                 ),
+                // 🔥 NEW: AI TOKEN WALLET
+    if (user != null && isApproved) ...[
+       _buildAiWallet(isDark, user.uid),
+       const SizedBox(height: 12),
+    ],
               Stack(
                 alignment: Alignment.center,
                 children: [
@@ -248,8 +253,8 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 12),
           _buildSystemCard(
             icon: Icons.vignette_outlined,
-            title: "Home Screen HUD",
-            subtitle: "Today at a Glance",
+            title: "Today At a Glance",
+            subtitle: "Homescreen Tasks display",
             isDark: isDark,
             trailing: Switch(
               value: settings.isHudEnabled,
@@ -337,6 +342,95 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+    Widget _buildAiWallet(bool isDark, String uid) {
+    // 1. First, we listen to your Global Cloud Config
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('app_config').doc('settings').snapshots(),
+      builder: (context, configSnapshot) {
+        // 1. DYNAMIC CHECK: Is the Cloud Config ready?
+      if (!configSnapshot.hasData || !configSnapshot.data!.exists) {
+        return const Center(child: LinearProgressIndicator()); // Or a shimmer effect
+      }
+
+      final configData = configSnapshot.data!.data() as Map<String, dynamic>;
+      // 🎯 THE TRUTH: Read directly from Firebase, NO hardcoded fallbacks here.
+      final int maxTokens = configData['daily_token_limit'] ?? 50000;
+
+        // 2. Then, we listen to the User's specific spending
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+          builder: (context, userSnapshot) {
+            int used = 0;
+            
+            if (userSnapshot.hasData && userSnapshot.data!.exists) {
+              final userData = userSnapshot.data!.data() as Map<String, dynamic>;
+              used = userData['tokens_used'] ?? 0;
+            }
+
+            // --- LOGIC CALCULATIONS ---
+            int remaining = (maxTokens - used).clamp(0, maxTokens);
+            double progress = (maxTokens > 0) ? (remaining / maxTokens) : 0.0;
+
+            return Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: isDark ? Colors.white12 : Colors.grey[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("AI Token Wallet", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          Text("Spend Wisely", style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.grey[500])),
+                        ],
+                      ),
+                      Icon(Icons.bolt, color: remaining < (maxTokens * 0.1) ? Colors.orange : Colors.amber, size: 20),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text("$remaining", style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 18, letterSpacing: 1)),
+                      Text("OF $maxTokens TOKENS", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: isDark ? Colors.white24 : Colors.grey[400])),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 8,
+                      backgroundColor: isDark ? Colors.white10 : Colors.grey[100],
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        remaining < (maxTokens * 0.1) ? Colors.redAccent : Colors.indigoAccent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      // Use .withValues(alpha: 0.5) to keep the compiler happy and precision high
+  Icon(Icons.cloud_done_outlined, size: 10, color: isDark ? Colors.green.withValues(alpha: 0.5) : Colors.green),
+                      const SizedBox(width: 4),
+                      Text("Why so low? Coz it costs actual money", style: TextStyle(fontSize: 9, color: isDark ? Colors.white24 : Colors.grey[400])),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   Widget _buildThemeOption(String name, Color color, SettingsService settings) {
     bool isSelected = settings.themeColor == name;
@@ -408,7 +502,7 @@ Widget _buildDangerZone(BuildContext context) {
       );
 
       // This now calls the re-authentication flow we added to SyncService
-      await SyncService().deleteUserAccount(); 
+      await SyncService().requestAccountDeletion(); // The new "Midnight Grace" method
       await StorageService.clearAll(); 
 
       if (!context.mounted) return;

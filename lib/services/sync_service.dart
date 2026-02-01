@@ -1,9 +1,10 @@
   import 'package:firebase_auth/firebase_auth.dart';
   import 'package:google_sign_in/google_sign_in.dart';
   import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:procrastinator/utils/logger.dart';
+  import 'package:procrastinator/utils/logger.dart';
   import '../models/task_model.dart';
   import '../services/storage_service.dart';
+  
 
   class SyncService {
     // Add this line to ensure only ONE instance exists
@@ -29,23 +30,21 @@ import 'package:procrastinator/utils/logger.dart';
     // 🛡️ S.INC SHIELD: The "Handshake" Guard
   bool _isInitialized = false;
 
-  Future<void> _ensureInitialized() async {
-    if (!_isInitialized) {
-      // 🕵️ CRITICAL: Paste your Web Client ID from Firebase Console here
-      await _googleSignIn.initialize(
-        serverClientId: 'YOUR_CLIENT_ID_FROM_FIREBASE.apps.googleusercontent.com',
-      );
-      _isInitialized = true;
-    }
+  
+Future<void> _ensureInitialized() async {
+  if (!_isInitialized) {
+    L.d("🛡️ S.INC: Preparing Google Auth Handshake...");
+    await _googleSignIn.initialize(
+      // 🔥 YOUR CLIENT ID GOES HERE ONCE 
+      serverClientId: '31245559081-i1mjcihhc5fr6edobt1vdh00um0ve0ra.apps.googleusercontent.com',
+    );
+    _isInitialized = true;
   }
-
+}
   Future<User?> signInWithGoogle() async {
   try {
     await _ensureInitialized();
     // 🛡️ S.INC SHIELD: Mandatory 2026 Warm-up
-      await _googleSignIn.initialize(
-      serverClientId: '31245559081-i1mjcihhc5fr6edobt1vdh00um0ve0ra.apps.googleusercontent.com',
-    );
     // 1. THE AUTOMATIC RE-ENTRY (No UI)
     // This looks for an existing session. If found, it skips the modal logic.
     GoogleSignInAccount? googleUser = await _googleSignIn.attemptLightweightAuthentication();
@@ -77,24 +76,43 @@ import 'package:procrastinator/utils/logger.dart';
       idToken: googleUser.authentication.idToken,
     );
 
-    // 4. SECURE FIREBASE SESSION
+    // 4. SECURE FIREBASE SESSION (Keep this!)
     final UserCredential userCredential = await _auth.signInWithCredential(credential);
+    final User? firebaseUser = userCredential.user;
     
-    if (userCredential.user != null) {
+    if (firebaseUser != null) {
+  final userDoc = await _db.collection('users').doc(firebaseUser.uid).get();
+  final bool isInLimbo = userDoc.exists && (userDoc.data()?['deletion_pending'] ?? false);
+
+  // 🛡️ S.INC SHIELD: If in Limbo, skip the 'last_active' update.
+  // This prevents the login from triggering a PERMISSION_DENIED.
+  if (!isInLimbo) {
+    await _db.collection('users').doc(firebaseUser.uid).set({
+      'email': firebaseUser.email,
+      'displayName': firebaseUser.displayName,
+      'photoUrl': firebaseUser.photoURL,
+      'last_active': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } else {
+    L.d("⏳ S.INC: User in Limbo. Skipping profile sync to avoid rule conflict.");
+  }
+
+      // 💾 STORAGE SERVICE (Keep this!)
       await StorageService.saveAuthHint(
-        initial: (userCredential.user!.displayName ?? "U")[0].toUpperCase(), 
+        initial: (firebaseUser.displayName ?? "U")[0].toUpperCase(), 
         isActive: true, 
         photoUrl: googleUser.photoUrl,
       );
     }
 
-    return userCredential.user;
+    return firebaseUser;
   } catch (e) {
-    // 🕵️ This is where we catch "User closed the modal" or "No SHA-1 match"
+    // Catch-all for "User closed modal" or "No SHA-1 match"
     L.d("🚨 S.INC Auth Error: $e");
     return null;
   }
 }
+
 
     Future<void> signOut() async {
       await _googleSignIn.signOut();
@@ -126,50 +144,54 @@ import 'package:procrastinator/utils/logger.dart';
     L.d("🚨 Cloud Sync Failed: $e");
   }
 }
-Future<void> deleteUserAccount() async {
+Future<void> requestAccountDeletion() async {
+  final User? user = _auth.currentUser;
+  if (user == null) return;
+
+  final String uid = user.uid;
+
+  try {
+    L.d("⏳ S.INC: Initializing Soft Limbo for $uid...");
+
+    // 🛡️ S.INC SHIELD: The Unified Limbo Update
+    // We consolidate everything into the 'users' collection.
+    await _db.collection('users').doc(uid).set({
+      'deletion_pending': true,
+      'deletion_requested_at': FieldValue.serverTimestamp(),
+      'status': 'limbo',
+      'isBetaApproved': false, // 🔥 THE ATOMIC FLICK: Kill AI instantly
+    }, SetOptions(merge: true));
+
+    L.d("☢️ S.INC: Account decommissioning active. AI services suspended.");
+    
+  } catch (e) {
+    L.d("🚨 S.INC Deletion Request Failure: $e");
+    rethrow;
+  }
+}
+Future<void> abortAccountDeletion() async {
   final User? user = _auth.currentUser;
   if (user == null) return;
 
   try {
-    // 1. RE-AUTH (The 2026 Handshake)
-    // Removed '?' because authenticate() is now non-nullable or throws an error.
-    final GoogleSignInAccount googleUser = await _googleSignIn.authenticate();
+    L.d("🟢 S.INC: Attempting Deletion Abort for ${user.uid}...");
 
-    // 🛡️ S.INC SHIELD: The NEW step to get the accessToken
-    // Re-authentication requires the same scopes used during login.
-    final authorization = await googleUser.authorizationClient.authorizeScopes([
-      'email',
-      'openid',
-    ]);
+    // 🛡️ S.INC SHIELD: The Surgical Update
+    // We ONLY send the fields whitelisted in Path B of your rules.
+    // If you add 'last_active' or 'email' here, it will trigger PERMISSION_DENIED.
+    await _db.collection('users').doc(user.uid).update({
+      'deletion_pending': false,
+      'status': 'active',
+      'last_active': FieldValue.serverTimestamp(), // ✅ Re-enable activity here
+      'deletion_requested_at': FieldValue.delete(), // Clears the cloud timer
+    });
 
-    // Removed 'await' because .authentication is now a synchronous getter.
-    final googleAuth = googleUser.authentication;
-
-    // Create the credential using the new authorization object
-    final AuthCredential credential = GoogleAuthProvider.credential(
-      accessToken: authorization.accessToken, // FIXED: No longer undefined
-      idToken: googleAuth.idToken,
-    );
-
-    // Perform the security re-authentication
-    await user.reauthenticateWithCredential(credential);
-
-    // 2. WIPE FIRESTORE (Authoritative Wipe)
-    L.d("🗑️ S.INC: Wiping Firestore document for ${user.uid}...");
-    await _db.collection('users').doc(user.uid).delete();
-    
-    await _db.collection('beta_requests').doc(user.uid).delete();
-
-    // 3. FINALLY DELETE AUTH ACCOUNT
-    await user.delete();
-    
-    L.d("☢️ S.INC: Cloud and Identity wiped successfully.");
+    L.d("✅ S.INC: Account successfully restored.");
   } catch (e) {
-    L.d("🚨 S.INC Permission Error: $e");
+    L.d("🚨 S.INC Restore Failed: $e");
     rethrow;
   }
 }
-
     Future<List<Task>> fetchTasksFromCloud() async {
       final User? user = _auth.currentUser;
       if (user == null) return [];

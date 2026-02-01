@@ -60,8 +60,9 @@ android {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
             
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             isShrinkResources = false
+            setProperty("archivesBaseName", "sinc-procrastinator")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
 

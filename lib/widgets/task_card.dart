@@ -266,13 +266,16 @@ void initState() {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          widget.task.dueDate.isNotEmpty ? "Due ${widget.task.dueDate}" : "Hold to Snooze",
-                          style: TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w600,
-                            fontStyle: widget.task.dueDate.isNotEmpty ? FontStyle.normal : FontStyle.italic,
-                            color: isDarkMode ? Colors.white70 : Colors.black87, 
-                          ),
-                        ),
+  widget.task.dueDate.isNotEmpty 
+    ? (widget.task.dueDate.contains("Ignore") ? widget.task.dueDate : "Due ${widget.task.dueDate}")
+    : "Let's wait a while for this", // 👈 This is your new "Default" fallback
+  style: TextStyle(
+    fontSize: 12, 
+    fontWeight: FontWeight.w600,
+    fontStyle: widget.task.dueDate.isEmpty ? FontStyle.italic : FontStyle.normal,
+    color: isDarkMode ? Colors.white70 : Colors.black87, 
+  ),
+),
                         const Spacer(),
                         if (widget.task.priority == 'High')
                           const Icon(Icons.flag, size: 14, color: Colors.redAccent)

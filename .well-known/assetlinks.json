@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.sinc.procrastinator",
+    "sha256_cert_fingerprints": ["F5:F0:DD:DA:C1:F3:01:F9:D9:FF:E2:27:A4:E8:71:86:37:C9:38:F6:F1:17:06:2A:BF:B6:0A:1F:88:69:96:89"]
+  }
+}]

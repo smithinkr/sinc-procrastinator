@@ -12,19 +12,24 @@ import '../services/settings_service.dart';
 import 'package:procrastinator/widgets/custom_text_controller.dart';
 import '../models/task_model.dart';
 import 'package:procrastinator/utils/logger.dart';
+import '../services/sync_service.dart';
 import 'dart:ui'; // 🔥 This enables the BackdropFilter and ImageFilter
+//import 'package:firebase_auth/firebase_auth.dart';
+//import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SmartInputLayer extends StatefulWidget {
   final List<Task> allTasks;
   final Function(dynamic, bool) onTaskCreated;
   final bool isVisible;
   final bool isAiLoading;
+  final bool isDeletionPending; // 👈 ADD THIS
   const SmartInputLayer({
     super.key, 
     required this.allTasks,
     required this.onTaskCreated,
     this.isVisible = false,
     required this.isAiLoading,
+    required this.isDeletionPending, // 👈 ADD THIS
   });
 
   
@@ -261,102 +266,212 @@ if (settings.isHudEnabled)
   AnimatedPositioned(
     duration: const Duration(milliseconds: 400),
     curve: Curves.easeOutCubic,
-    top: MediaQuery.of(context).size.height * 0.20, 
+    top: MediaQuery.of(context).size.height * 0.20,
     left: 0, right: 0,
     child: AnimatedOpacity(
       opacity: _isInputActive ? 0.0 : 1.0,
       duration: const Duration(milliseconds: 300),
-      child: Column(
+      child: Stack( // 👈 START HUD STACK
+        alignment: Alignment.center,
         children: [
-          // 1. TASK AT-A-GLANCE (Scrollable Container)
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.30, 
-            child: GestureDetector(
-              onHorizontalDragStart: (_) {}, // Pass horizontal swipes to PageView
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  children: [
-                    if (todayTasks.isNotEmpty) ...[
-                      Text(
-                        "TODAY",
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w300,
-                          letterSpacing: 5.0,
-                          color: isDarkMode 
-                              ? Colors.white.withValues(alpha: 0.2) 
-                              : Colors.black.withValues(alpha: 0.15),
-                        ),
+          
+          // 1. THE BACKGROUND GROUP (Tasks + Gap + Slogan)
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 500),
+            opacity: widget.isDeletionPending ? 0.25 : 1.0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // TASK AT-A-GLANCE
+                SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.30,
+                  child: GestureDetector(
+                    onHorizontalDragStart: (_) {},
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        children: [
+                          if (todayTasks.isNotEmpty) ...[
+                            Text(
+                              "TODAY",
+                              style: TextStyle(
+                                fontSize: 10, fontWeight: FontWeight.w300, letterSpacing: 5.0,
+                                color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.15),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            ...todayTasks.map((task) => Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 40),
+                                  child: Text(
+                                    task.title.toLowerCase(),
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 22, fontWeight: FontWeight.w200, letterSpacing: 1.2,
+                                      color: isDarkMode ? Colors.white.withValues(alpha: 0.4) : Colors.black.withValues(alpha: 0.25),
+                                    ),
+                                  ),
+                                )),
+                          ] else const SizedBox(height: 50),
+                        ],
                       ),
-                      const SizedBox(height: 20),
-                      ...todayTasks.map((task) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 40),
-                        child: Text(
-                          task.title.toLowerCase(),
+                    ),
+                  ),
+                ),
+
+                // THE GAP
+                AnimatedOpacity(
+                  opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 800),
+                  child: const SizedBox(height: 40),
+                ),
+
+                // THE SLOGAN
+                AnimatedOpacity(
+                  opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 800),
+                  child: _showSlogan
+                      ? Text(
+                          "let's procrastinate in style",
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w200,
-                            color: isDarkMode 
-                                ? Colors.white.withValues(alpha: 0.4) 
-                                : Colors.black.withValues(alpha: 0.25),
-                            letterSpacing: 1.2,
+                            fontSize: 20, fontWeight: FontWeight.w300, letterSpacing: 2.5,
+                            color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.12),
                           ),
-                        ),
-                      )),
-                    ] else
-                       const SizedBox(height: 50), 
-                  ],
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. 🔥 THE LIMBO BANNER (Floating Center)
+          if (widget.isDeletionPending)
+  ClipRRect(
+    borderRadius: BorderRadius.circular(32),
+    child: BackdropFilter(
+      // 👈 Increase blur to 16 for better separation from the background tasks
+      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16), 
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.9,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          // 👈 Darker, more opaque glass makes the Amber text "pop"
+          color: isDarkMode 
+              ? Colors.black.withValues(alpha: 0.65) 
+              : Colors.white.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(
+            color: Colors.amber.withValues(alpha: 0.4), 
+            width: 1.5
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 30,
+              offset: const Offset(0, 10),
+            )
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 👈 Increased icon size for urgency
+            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 42),
+            const SizedBox(height: 16),
+            const Text(
+              "APP EUTHANIZATION ACTIVE",
+              style: TextStyle(
+                color: Colors.amber, 
+                fontWeight: FontWeight.w900, // 👈 Extra Bold for readability
+                fontSize: 13, 
+                letterSpacing: 2.5
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Your tasks' funeral is scheduled at midnight UTC. \nAI Intelligence turned off. \nYou crushed Dev's heart today. We could've talked this out",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isDarkMode ? Colors.white70 : Colors.black87, 
+                fontSize: 13, 
+                height: 1.5,
+                fontWeight: FontWeight.w400
+              ),
+            ),
+            const SizedBox(height: 28),
+            
+            // --- THE REFINED "SOLID STATE" BUTTON ---
+            ElevatedButton(
+           // --- REPLACE YOUR BUTTON'S onPressed WITH THIS ---
+onPressed: () async {
+  HapticFeedback.heavyImpact(); 
+  
+  try {
+    // 🛡️ S.INC SHIELD: Service call
+    await SyncService().abortAccountDeletion();
+    
+    // ✅ THE 2026 STANDARD: Check 'context.mounted' directly 
+    // to bridge the async gap for the SnackBar below.
+    if (!context.mounted) return;
+
+    L.d("🟢 S.INC: Restore Successful.");
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Account Restored! Welcome back."),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+
+  } catch (e) {
+    L.d("🚨 S.INC Restore Failed: $e");
+    
+    // ✅ Apply the same guard here in the catch block
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Restore failed. Check connection."),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+},
+              style: ElevatedButton.styleFrom(
+                // 👈 SOLID background for 100% visibility
+                backgroundColor: Colors.amber, 
+                foregroundColor: Colors.black, // High contrast black text
+                elevation: 4,
+                shadowColor: Colors.amber.withValues(alpha: 0.3),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                minimumSize: const Size(double.infinity, 54),
+              ),
+              child: const Text(
+                "ABORT ERASURE", 
+                style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2)
+                      ),
+            ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-
-          // 2. THE GAP (Now correctly inside the children list)
-          AnimatedOpacity(
-            opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 800),
-            child: const SizedBox(height: 40),
-          ),
-
-          // 3. THE SLOGAN (Now correctly inside the children list)
-          AnimatedOpacity(
-            opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 800), // Smooth fade out
-            child: _showSlogan 
-              ? Text(
-                  "let's procrastinate in style",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w300,
-                    color: isDarkMode 
-                        ? Colors.white.withValues(alpha: 0.2) 
-                        : Colors.black.withValues(alpha: 0.12),
-                    letterSpacing: 2.5,
-                  ),
-                )
-              : const SizedBox.shrink(),
-          ),
-        ], // <--- FIXED: Closes the children list
-      ), // <--- FIXED: Closes the Column
+        ], // 👈 END STACK CHILDREN
+      ), // 👈 END STACK
     ),
   ),
-        // Background Dimmer
-        if (_isInputActive)
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _closeInputMode,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                color: isDarkMode ? Colors.black54 : Colors.black26,
-              ),
-            ),
-          ),
 
-        
-
+// 3. BACKGROUND DIMMER (Outside the HUD)
+if (_isInputActive)
+  Positioned.fill(
+    child: GestureDetector(
+      onTap: _closeInputMode,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        color: isDarkMode ? Colors.black54 : Colors.black26,
+      ),
+    ),
+  ),
         // --- 4. THE UI STACK (Inside build method) ---
 // ✨ THE INTELLIGENCE SWITCH (Island 1)
          AnimatedPositioned(
@@ -366,10 +481,10 @@ if (settings.isHudEnabled)
             bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 200 : 335) : 0,
             left: 24, 
             child: IgnorePointer(
-          ignoring: !_isInputActive,
+          ignoring: !_isInputActive || widget.isDeletionPending,
             child: AnimatedOpacity(
               duration: const Duration(milliseconds: 300),
-              opacity: _isInputActive ? 1.0 : 0.0,
+              opacity: _isInputActive ? (widget.isDeletionPending ? 0.3 : 1.0) : 0.0,
               child: Center(
                 child: GestureDetector(
                   onTap: () {

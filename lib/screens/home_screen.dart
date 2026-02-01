@@ -25,12 +25,14 @@
     class HomeScreen extends StatefulWidget {
       // 1. Define the variables the widget will hold
     final bool startLoggedIn;
+    final bool isDeletionPending;
     final String userInitial;
     final String? userPhotoUrl;
       // 2. Update the constructor to accept them
     const HomeScreen({
       super.key, 
       this.startLoggedIn = false, // Default to false if not provided
+      this.isDeletionPending = false,
       this.userInitial = '', 
       this.userPhotoUrl,     // Default to empty string
     });
@@ -793,7 +795,7 @@
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text("cloud console", 
+                Text("CLOUD CONSOLE", 
                   style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.grey[500])),
                 const SizedBox(height: 24),
 
@@ -1152,6 +1154,7 @@
       onTaskCreated: (input, useAi) => _addTask(input, useAi),
       isVisible: false,
       isAiLoading: _isAiLoading, 
+      isDeletionPending: widget.isDeletionPending,
     ),
                         ),
                       );
