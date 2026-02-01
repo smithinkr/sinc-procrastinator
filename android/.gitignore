@@ -3,6 +3,7 @@ key.properties
 **/*.keystore
 **/*.jks
 local.properties
+.vscode/
 
 # --- Flutter/Dart Build Artifacts ---
 .dart_tool/
