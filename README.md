@@ -6,9 +6,13 @@
   </a>
 </p>
 
-> Precision Task Management for the Forgetful Professional
+<p align="center">
+  <i>"Precision Task Management for the Forgetful Professional"</i>
+</p>
 
-[S.INC Branding] [Build-Status] [Platform: Android/OnePlus/Samsung]
+<p align="center">
+  <img src="https://raw.githubusercontent.com/smithinkr/sinc-procrastinator/main/assets/banner%20background%20light.png" width="100%" alt="S.INC Banner" />
+</p>
 
 ---
 
@@ -17,61 +21,50 @@ Most task apps are built for people who already have it together. I am a self-de
 
 I didn't just want a list; I wanted a partner. **Procrastinator** was born from that gap. It is a flagship engine developed with the analytical rigor of a **Lead Business Analyst** and the creative flexibility of "Vibe Coding." It identifies the friction points of modern productivity and solves them with AI-driven automation.
 
+## 📸 Interface Preview
+<p align="center">
+  <img src="https://raw.githubusercontent.com/smithinkr/sinc-procrastinator/main/assets/1.homescreen.png" width="32%" alt="Home Screen" />
+  </p>
+
 ## 🚀 Core Features
-* **Smart HUD (Today at a Glance):** A high-visibility, transparent overlay that keeps your immediate priorities front and center without cluttering the UI. Includes gesture pass-through logic for seamless navigation.
-* **Gemini AI Intelligence:** Native integration with Google Gemini for natural language parsing, automatic subtask generation, and "sassy" morning briefings.
+* **Smart HUD (Today at a Glance):** A high-visibility, transparent overlay that keeps your immediate priorities front and center. Includes gesture pass-through logic for seamless navigation.
+* **Server-Side AI Intelligence:** Native integration with **Firebase Vertex AI**. This allows for natural language parsing and automatic subtask generation without exposing client-side API keys.
 * **Cloud-Sync & Persistence:** Real-time Firebase integration allowing seamless transitions between mobile devices (Optimized for OnePlus 12 and Samsung S23 FE).
-* **Production-Grade Security:** Hardened APK build with full code obfuscation and hardware-backed secret vaulting to protect API credentials.
-* **Adaptive Theme Engine:** Glassmorphic UI that reacts to your device's light/dark mode settings and custom S.INC color palettes.
+* **Enterprise Security Architecture:** Hardened APK build utilizing **Digital Asset Links** for domain verification and Firebase Security Rules to protect user data.
+* **Adaptive Theme Engine:** A Glassmorphic UI that reacts to device light/dark mode settings and custom S.INC color palettes.
 
 ## 🛠 Technical Architecture
 * **Framework:** Flutter (Material 3)
 * **Backend:** Firebase Auth & Firestore
-* **AI Engine:** Google Gemini AI (Vertex AI/AI Studio)
-* **Security:** AES-GCM Encryption, Envied (Obfuscation), and Hardware-backed Storage.
+* **AI Integration:** Firebase Vertex AI (Gemini 1.5 Flash)
+* **Security:** SHA-256 Signing, ProGuard/R8 Obfuscation, and Firebase App Check.
 * **State Management:** Provider for real-time UI synchronization.
 
-
-## 📥 Installation & Setup
-To run this production-hardened build locally, follow the S.INC onboarding protocol:
+## 📥 Installation & Onboarding
+To run this production-hardened build locally, follow the S.INC protocol:
 
 1.  **Clone the Repository:**
     ```bash
     git clone [https://github.com/smithinkr/sinc-procrastinator.git](https://github.com/smithinkr/sinc-procrastinator.git)
     ```
-2.  **Reconcile Dependencies:**
+2.  **Firebase Configuration:**
+    Because this app uses a secure Firebase-side AI implementation, you must provide your own `google-services.json` file in `android/app/`.
+3.  **Reconcile Dependencies:**
     ```bash
     flutter pub get
     ```
-3.  **Environment Configuration:**
-    Create a `.env` file in the root directory and add your Gemini API Key:
-    ```text
-    GEMINI_API_KEY=your_key_here
-    ```
-4.  **Run Development Build:**
-    ```bash
-    flutter run
-    ```
-5.  **Production Hardening (Obfuscated Build):**
+4.  **Production Hardening (Obfuscated Build):**
     ```bash
     flutter build apk --release --obfuscate --split-debug-info=build/app/outputs/symbols
     ```
 
-## 📈 Project Roadmap: Future Iterations
-* [ ] **WearOS Integration:** Bringing the HUD to the wrist for even faster "at-a-glance" access.
-* [ ] **S.INC Collaboration:** Shared task lists with real-time AI conflict resolution.
-* [ ] **Voice-First HUD:** Total hands-free task creation using advanced audio recording logic.
-
 ## 💼 Business Analyst & Implementation Focus
-This project serves as a live demonstration of my ability to:
-1.  **Translate User Needs:** Converting personal forgetfulness into a structured requirement set.
-2.  **Architect Solutions:** Designing a secure, scalable cloud-to-mobile infrastructure.
-3.  **Execute Deployment:** Hardening the application for production use on high-end Android hardware.
-4.  **Version Control Mastery:** Maintaining a clean, secure, and documented GitHub ledger.
+This project demonstrates a "Full-Cycle" product mindset:
+1.  **Requirement Translation:** Converting the "pain point" of forgetfulness into a structured technical requirement set.
+2.  **Security Governance:** Implementing **Digital Asset Links** and server-side AI calls to mitigate credential leaks—ensuring production-ready safety.
+3.  **Deployment Excellence:** Managing the pivot from a third-party marketplace to a secure, verified GitHub distribution pipeline.
+4.  **Version Control Mastery:** Maintaining a clean, secure, and documented ledger via Git.
 
 ---
 
-## 📜 License
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-© 2026 S.INC | Developed by [Your Name]
+© 2026 S.INC | Developed by [Smithin K R]
