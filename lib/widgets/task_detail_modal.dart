@@ -1,8 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import '../models/task_model.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:uuid/uuid.dart';
+import '../models/task_model.dart';
 import '../services/settings_service.dart';
 
 class TaskDetailModal extends StatefulWidget {
@@ -11,11 +11,12 @@ class TaskDetailModal extends StatefulWidget {
   final VoidCallback onToggle;
   final VoidCallback onDelete;
   final Function(String subtaskId) onSubtaskToggle;
-  
   final Function(Task updatedTask)? onUpdate;
-
   final bool isPreview;
   final VoidCallback? onConfirm;
+  
+  
+  
 
   const TaskDetailModal({
     super.key,
@@ -37,509 +38,599 @@ class _TaskDetailModalState extends State<TaskDetailModal> {
   bool _isEditing = false;
   late TextEditingController _titleController;
   late TextEditingController _descController;
-  
+  final TextEditingController _newSubtaskController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final ScrollController _categoryScrollController = ScrollController(); // 🔥 Track the slider position
   final Map<String, TextEditingController> _subtaskControllers = {};
+  late List<SubTask> _localSubtasks;
+  final List<String> _categories = ['General', 'Work', 'Personal', 'Shopping'];
 
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   late String _selectedCategory; 
+  late String _selectedPriority;
+  bool _showScrollArrow = true;
+  double _getCategoryValue() => _categories.indexOf(_selectedCategory).toDouble();
 
   @override
   void initState() {
     super.initState();
+    _isEditing = false; 
     _titleController = TextEditingController(text: widget.task.title);
     _descController = TextEditingController(text: widget.task.description);
+    _localSubtasks = List.from(widget.task.subtasks);
     _selectedCategory = widget.task.category;
+    _selectedPriority = widget.task.priority;
     _selectedDate = widget.task.exactDate;
+    
     if (widget.task.hasSpecificTime && widget.task.exactDate != null) {
       _selectedTime = TimeOfDay.fromDateTime(widget.task.exactDate!);
     }
-  }
 
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _descController.dispose();
-    for (var c in _subtaskControllers.values) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  Future<void> _pickDate() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (!mounted) return;
-    if (date != null) setState(() => _selectedDate = date);
-  }
-
-  Future<void> _pickTime() async {
-    final time = await showTimePicker(
-      context: context,
-      initialTime: _selectedTime ?? TimeOfDay.now(),
-    );
-    if (!mounted) return;
-    if (time != null) setState(() => _selectedTime = time);
-  }
-
-  void _toggleEditMode() {
-    if (_isEditing) {
-      DateTime? finalExactDate;
-      bool hasTime = false;
-      String displayDate = "";
-
-      if (_selectedDate != null) {
-        if (_selectedTime != null) {
-          finalExactDate = DateTime(
-            _selectedDate!.year, _selectedDate!.month, _selectedDate!.day,
-            _selectedTime!.hour, _selectedTime!.minute
-          );
-          hasTime = true;
-          if (mounted) {
-             displayDate = "${_selectedDate!.day}/${_selectedDate!.month} ${_selectedTime!.format(context)}";
-          }
-        } else {
-          finalExactDate = DateTime(
-            _selectedDate!.year, _selectedDate!.month, _selectedDate!.day
-          );
-          hasTime = false;
-          displayDate = "${_selectedDate!.day}/${_selectedDate!.month}";
-        }
+    _scrollController.addListener(() {
+      if (_scrollController.hasClients && _scrollController.offset > 50 && _showScrollArrow) {
+        setState(() => _showScrollArrow = false);
+      } else if (_scrollController.hasClients && _scrollController.offset <= 50 && !_showScrollArrow) {
+        setState(() => _showScrollArrow = true);
       }
-
-      final updatedTask = widget.task.copyWith(
-        title: _titleController.text.trim(),
-        description: _descController.text.trim(),
-        category: _selectedCategory,
-        exactDate: finalExactDate,
-        dueDate: displayDate,
-        hasSpecificTime: hasTime,
-        subtasks: widget.task.subtasks.map((s) {
-          if (_subtaskControllers.containsKey(s.id)) {
-            return s.copyWith(title: _subtaskControllers[s.id]!.text.trim());
-          }
-          return s;
-        }).toList(),
-      );
-
-      if (widget.onUpdate != null) {
-        widget.onUpdate!(updatedTask);
-      }
-    }
-    setState(() {
-      _isEditing = !_isEditing;
     });
   }
 
-  TextEditingController getSubtaskController(String id, String initialText) {
-    return _subtaskControllers.putIfAbsent(id, () => TextEditingController(text: initialText));
+@override
+  void dispose() {
+    _titleController.dispose();
+    _descController.dispose();
+    _newSubtaskController.dispose();
+    _scrollController.dispose();
+    
+    // 🔥 ADD THIS LINE HERE
+    _categoryScrollController.dispose(); 
+    
+    for (var c in _subtaskControllers.values) { c.dispose(); }
+    super.dispose();
+  }
+
+  void _saveChanges() {
+    DateTime? finalExactDate;
+    bool hasTime = false;
+    String displayDateString = "";
+
+    // 🔥 DATA SYNC FIX: Reconcile date and time for the Task Card
+    if (_selectedDate != null) {
+      if (_selectedTime != null) {
+        finalExactDate = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day, _selectedTime!.hour, _selectedTime!.minute);
+        hasTime = true;
+        displayDateString = "${_selectedDate!.day}/${_selectedDate!.month} ${_selectedTime!.format(context)}";
+      } else {
+        finalExactDate = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
+        displayDateString = "${_selectedDate!.day}/${_selectedDate!.month}";
+      }
+    }
+
+    final updatedTask = widget.task.copyWith(
+      title: _titleController.text.trim(),
+      description: _descController.text.trim(),
+      category: _selectedCategory,
+      priority: _selectedPriority,
+      exactDate: finalExactDate,
+      dueDate: displayDateString.isEmpty ? widget.task.dueDate : displayDateString,
+      hasSpecificTime: hasTime,
+      subtasks: _localSubtasks.map((s) {
+        if (_subtaskControllers.containsKey(s.id)) {
+          return s.copyWith(title: _subtaskControllers[s.id]!.text.trim());
+        }
+        return s;
+      }).toList(),
+    );
+
+    if (widget.onUpdate != null) widget.onUpdate!(updatedTask);
+    setState(() => _isEditing = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    String dateDisplay = _selectedDate == null 
-      ? "Set Date" 
-      : "${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}";
-    String timeDisplay = _selectedTime == null 
-      ? "No Time" 
-      : _selectedTime!.format(context);
+    final settings = Provider.of<SettingsService>(context);
+    final isDark = settings.isDarkMode;
+    final themeColor = _getThemeColor(settings.themeColor);
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
 
-    return GestureDetector(
-      onTap: widget.onClose,
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.2),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Center(
-            child: GestureDetector(
-              onTap: () {}, 
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.9,
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(32),
-                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 20)],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // --- 1. FIXED HEADER ---
-                    Container(
-                      height: 80, 
-                      decoration: BoxDecoration(
-                        color: Colors.grey[50],
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-                        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
-                      ),
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            top: 16, right: 16,
-                            child: IconButton(
-                              onPressed: widget.onClose,
-                              icon: const Icon(Icons.close),
-                              style: IconButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 16, left: 24,
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: Colors.grey[300]!),
-                                  ),
-                                  child: Text(
-                                    "${widget.task.priority} Priority".toUpperCase(),
-                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (!_isEditing)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.indigo.withValues(alpha: 0.1),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      _selectedCategory.toUpperCase(),
-                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5, color: Colors.indigo),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    // --- 2. SCROLLABLE BODY ---
-                    Flexible(
-                      child: SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 16),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: _isEditing 
-                                    ? TextField(
-                                        controller: _titleController,
-                                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                                        textCapitalization: TextCapitalization.sentences,
-                                        decoration: const InputDecoration(
-                                          hintText: "Task Title",
-                                          border: InputBorder.none,
-                                          isDense: true,
-                                        ),
-                                        maxLines: null,
-                                      )
-                                    : Text(
-                                        widget.task.title,
-                                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, height: 1.2),
-                                      ),
-                                ),
-                                if (!widget.isPreview && !_isEditing) 
-                                  IconButton(
-                                    onPressed: widget.onToggle,
-                                    icon: Icon(Icons.check, color: widget.task.isCompleted ? Colors.white : Colors.grey[400]),
-                                    style: IconButton.styleFrom(
-                                      backgroundColor: widget.task.isCompleted ? Colors.green : Colors.grey[100],
-                                    ),
-                                  )
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-
-                            if (_isEditing || widget.task.exactDate != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 20),
-                                child: Row(
-                                  children: [
-                                    _buildChip(
-                                      icon: Icons.calendar_today,
-                                      label: dateDisplay,
-                                      isActive: true,
-                                      onTap: _isEditing ? _pickDate : null,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    _buildChip(
-                                      icon: Icons.access_time,
-                                      label: timeDisplay,
-                                      isActive: _isEditing && _selectedDate != null,
-                                      onTap: (_isEditing && _selectedDate != null) ? _pickTime : null,
-                                      isHighlight: _isEditing && _selectedDate != null,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          
-                            if (_isEditing) ...[
-                               Row(children: [
-                                 Icon(Icons.category, size: 14, color: Colors.grey[400]),
-                                 const SizedBox(width: 8),
-                                 Text("CATEGORY", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400]))
-                               ]),
-                               const SizedBox(height: 8),
-                               SingleChildScrollView(
-                                 scrollDirection: Axis.horizontal,
-                                 child: Row(
-                                   children: ['General', 'Work', 'Personal', 'Shopping'].map((cat) {
-                                     final bool isSelected = _selectedCategory == cat;
-                                     return Padding(
-                                       padding: const EdgeInsets.only(right: 8),
-                                       child: ChoiceChip(
-                                         label: Text(cat),
-                                         selected: isSelected,
-                                         onSelected: (bool selected) { if (selected) setState(() => _selectedCategory = cat); },
-                                         selectedColor: Colors.indigo,
-                                         backgroundColor: Colors.grey[100],
-                                         labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
-                                         side: BorderSide.none,
-                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                       ),
-                                     );
-                                   }).toList(),
-                                 ),
-                               ),
-                               const SizedBox(height: 24),
-                            ],
-
-                            if (_isEditing || widget.task.description.isNotEmpty)
-                              Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[50],
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.grey[200]!)
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(children: [
-                                      Icon(Icons.notes, size: 14, color: Colors.grey[400]),
-                                      const SizedBox(width: 8),
-                                      Text("NOTES", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400]))
-                                    ]),
-                                    const SizedBox(height: 8),
-                                    _isEditing
-                                      ? TextField(
-                                          controller: _descController,
-                                          style: TextStyle(color: Colors.grey[700], height: 1.5),
-                                          textCapitalization: TextCapitalization.sentences,
-                                          decoration: const InputDecoration(hintText: "Add details...", border: InputBorder.none, isDense: true),
-                                          maxLines: null,
-                                        )
-                                      : Text(widget.task.description, style: TextStyle(color: Colors.grey[700], height: 1.5)),
-                                  ],
-                                ),
-                              ),
-                            
-                            const SizedBox(height: 24),
-                            if (widget.isPreview && widget.task.exactDate != null && !_isEditing)
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Row(
-          children: [
-            Icon(
-          widget.task.isAiGenerated ? Icons.auto_awesome : Icons.calendar_month_rounded, 
-          size: 16, 
-          color: Colors.indigoAccent
-        ),
-        const SizedBox(width: 8),
-            Text(
-              // 🔥 THE CLEAN INTERPOLATION: We use ${} for everything
-  '${widget.task.isAiGenerated ? "AI SCHEDULE: " : "SCHEDULED: "}'
-  '${widget.task.exactDate!.day}/${widget.task.exactDate!.month}'
-  '${widget.task.hasSpecificTime ? " @ ${TimeOfDay.fromDateTime(widget.task.exactDate!).format(context)}" : ""}',
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigoAccent, fontSize: 13),
+    return BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 250),
+        padding: EdgeInsets.only(bottom: keyboardHeight),
+        child: Center(
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.92,
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0F172A).withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(32),
+              border: Border.all(color: themeColor.withValues(alpha: 0.12), width: 1.5),
             ),
-          ],
-        ),
-      ),
-
-    const SizedBox(height: 24),
-                            
-                            if (widget.task.subtasks.isNotEmpty) ...[
-                              const Text("SUBTASKS", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 1)),
-                              const SizedBox(height: 12),
-                              ...widget.task.subtasks.map((st) => Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start, 
-                                  children: [
-                                    if (!_isEditing)
-                                      InkWell(
-                                        onTap: widget.isPreview ? null : () => widget.onSubtaskToggle(st.id),
-                                        child: Container(
-                                          margin: const EdgeInsets.only(top: 2), 
-                                          width: 20, height: 20,
-                                          decoration: BoxDecoration(
-                                            color: st.isCompleted ? Colors.indigo : Colors.white,
-                                            border: Border.all(color: st.isCompleted ? Colors.indigo : Colors.grey[300]!),
-                                            borderRadius: BorderRadius.circular(6)
-                                          ),
-                                          child: st.isCompleted ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
-                                        ),
-                                      ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: _isEditing
-                                        ? TextField(
-                                            controller: getSubtaskController(st.id, st.title),
-                                            textCapitalization: TextCapitalization.sentences,
-                                            decoration: const InputDecoration(isDense: true, border: UnderlineInputBorder()),
-                                          )
-                                        : InkWell(
-                                            onTap: widget.isPreview ? null : () => widget.onSubtaskToggle(st.id),
-                                            child: Text(st.title, style: TextStyle(color: st.isCompleted ? Colors.grey[400] : Colors.black87, decoration: st.isCompleted ? TextDecoration.lineThrough : null, height: 1.3)),
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              )),
-                            ] else ...[
-                              Consumer<SettingsService>(
-                                builder: (context, settings, child) {
-                                  final user = FirebaseAuth.instance.currentUser;
-                                  if (user != null && settings.isBetaApproved) return const SizedBox.shrink();
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-                                    decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.withValues(alpha: 0.1))),
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.auto_awesome, size: 20, color: Colors.grey[400]),
-                                        const SizedBox(width: 12),
-                                        Expanded(child: Text("Want smarter tasks? You can enable AI intelligence in Settings.", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.grey[600], height: 1.4))),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // --- 3. FIXED FOOTER ---
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        border: Border(top: BorderSide(color: Colors.grey[100]!))
-                      ),
-                      child: widget.isPreview 
-                      ? Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            TextButton.icon(
-                              onPressed: _toggleEditMode,
-                              icon: Icon(_isEditing ? Icons.save : Icons.edit_note, size: 16),
-                              label: Text(_isEditing ? "Save Changes" : "Micromanage Details"),
-                              style: TextButton.styleFrom(foregroundColor: _isEditing ? Colors.green : Colors.indigo),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextButton(
-                                    onPressed: widget.onClose, 
-                                    style: TextButton.styleFrom(foregroundColor: Colors.grey, padding: const EdgeInsets.symmetric(vertical: 16)),
-                                    child: const Text("Discard"),
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  flex: 2,
-                                  child: ElevatedButton.icon(
-                                    onPressed: widget.onConfirm,
-                                    icon: const Icon(Icons.check),
-                                    label: const Text("Confirm & Add"),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.black,
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        )
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            TextButton.icon(
-                              onPressed: _toggleEditMode,
-                              icon: Icon(_isEditing ? Icons.save : Icons.edit_note, size: 16),
-                              label: Text(_isEditing ? "Save Changes" : "Micromanage"),
-                              style: TextButton.styleFrom(foregroundColor: _isEditing ? Colors.green : Colors.indigo),
-                            ),
-                            if (!_isEditing)
-                              TextButton.icon(
-                                onPressed: widget.onDelete,
-                                icon: const Icon(Icons.delete_outline, size: 16),
-                                label: const Text("Delete"),
-                                style: TextButton.styleFrom(foregroundColor: Colors.red),
-                              )
-                          ],
-                        ),
-                    ),
-                  ],
-                ), 
-              ),
-            ),
+            // 🔥 THE NEW CLEAN ENGINE ROOM
+child: _isEditing 
+    ? _buildMicromanageLayout(themeColor, isDark) 
+    : _buildStandardLayout(themeColor, isDark),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildChip({
-    required IconData icon, 
-    required String label, 
-    required VoidCallback? onTap, 
-    bool isActive = false, 
-    bool isHighlight = false
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          borderRadius: BorderRadius.circular(10),
-          border: isHighlight ? Border.all(color: Colors.indigo.withValues(alpha: 0.3)) : null
-        ),
-        child: Row(
+  // --- GLASS COMPONENTS ---
+
+ Widget _buildHeader(Color theme, bool isDark) {
+  return Container(
+    padding: const EdgeInsets.fromLTRB(24, 24, 12, 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(icon, size: 14, color: isHighlight ? Colors.indigo : Colors.grey),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+            Row(
+              children: [
+                _buildGlassTag(_selectedCategory.toUpperCase(), isDark ? Colors.white60 : Colors.black54, isDark),
+                const SizedBox(width: 10),
+                _buildGlassTag(_selectedPriority.toUpperCase(), _selectedPriority == 'High' ? Colors.redAccent : theme, isDark),
+              ],
+            ),
+            // Glass Close Button
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+                  ),
+                  child: IconButton(
+                    onPressed: widget.onClose, 
+                    icon: Icon(Icons.close_rounded, size: 20, color: isDark ? Colors.white70 : Colors.black54)
+                  ),
+                ),
+              ),
             ),
           ],
         ),
+        
+        // 🔥 THE CONTENT AREA (Conditional Editing UI)
+        if (_isEditing) ...[
+          const SizedBox(height: 24),
+          // 1. NEUTRAL PRIORITY SELECTOR (Thin borders, no heavy fill)
+          _buildBiggerSelector(
+            title: "PRIORITY", 
+            options: ['Low', 'Medium', 'High'], 
+            current: _selectedPriority, 
+            onSelect: (v) => setState(() => _selectedPriority = v), 
+            theme: theme, 
+            isDark: isDark,
+            isSlider: false, // Standard row for Priority
+          ),
+          
+          const SizedBox(height: 20),
+          // 2. TACTILE CATEGORY SLIDER (Physical line + Round thumb)
+          _buildBiggerSelector(
+            title: "CATEGORY", 
+            options: _categories, 
+            current: _selectedCategory, 
+            onSelect: (v) => setState(() => _selectedCategory = v), 
+            theme: theme, 
+            isDark: isDark,
+            isSlider: true, // Physical slider for Categories
+          ),
+        ]
+      ],
+    ),
+  );
+}
+Widget _buildTactileSlider(Color theme, bool isDark) {
+  return Column(
+    children: [
+      SliderTheme(
+        data: SliderThemeData(
+          trackHeight: 2,
+          activeTrackColor: theme.withValues(alpha: 0.3),
+          inactiveTrackColor: Colors.grey.withValues(alpha: 0.1),
+          thumbColor: isDark ? Colors.white : theme,
+          overlayColor: theme.withValues(alpha: 0.1),
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10, elevation: 4),
+          tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2),
+          activeTickMarkColor: theme,
+          inactiveTickMarkColor: Colors.grey,
+        ),
+        child: Slider(
+          value: _getCategoryValue(),
+          min: 0,
+          max: 3,
+          divisions: 3,
+          onChanged: (val) {
+            setState(() => _selectedCategory = _categories[val.toInt()]);
+          },
+        ),
+      ),
+      const SizedBox(height: 4), // Added space for the larger text
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14), // Balanced padding
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: _categories.map((c) {
+            final isSelected = _selectedCategory == c;
+            return Text(
+              c.toUpperCase(), 
+              style: TextStyle(
+                fontSize: 12, // 🔥 INCREASED from 8 to 12
+                fontWeight: isSelected ? FontWeight.w900 : FontWeight.bold,
+                color: isSelected 
+                    ? (isDark ? Colors.white : theme) 
+                    : Colors.grey[400],
+                letterSpacing: 1.1,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    ],
+  );
+}
+  Widget _buildGlassMetadataRow(Color theme, bool isDark) {
+    final dateText = _selectedDate == null ? "No Date" : "${_selectedDate!.day}/${_selectedDate!.month}";
+    final timeText = _selectedTime == null ? "No Time" : _selectedTime!.format(context);
+
+    return Row(
+      children: [
+        Expanded(child: _buildLargeGlassButton(icon: Icons.calendar_today_rounded, label: dateText, onTap: _isEditing ? _pickDate : null, isDark: isDark, theme: theme)),
+        const SizedBox(width: 12),
+        Expanded(child: _buildLargeGlassButton(icon: Icons.access_time_filled_rounded, label: timeText, onTap: _isEditing ? _pickTime : null, isDark: isDark, theme: theme)),
+      ],
+    );
+  }
+
+  Widget _buildLargeGlassButton({required IconData icon, required String label, required VoidCallback? onTap, required bool isDark, required Color theme}) {
+  bool isActive = onTap != null;
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        // 🔥 REMOVED SOLID THEME COLOR: Now just a light grey/white glass tint
+        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isActive ? Colors.grey.withValues(alpha: 0.15) : Colors.transparent),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: isActive ? theme.withValues(alpha: 0.7) : Colors.grey),
+          const SizedBox(width: 10),
+          Text(
+            label, 
+            style: TextStyle(
+              fontSize: 13, 
+              fontWeight: FontWeight.bold, 
+              color: isActive ? (isDark ? Colors.white : Colors.black87) : Colors.grey
+            )
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+  
+  Widget _buildFooter(Color theme, bool isDark) {
+  return Container(
+    padding: const EdgeInsets.all(24),
+    decoration: BoxDecoration(
+      border: Border(top: BorderSide(color: Colors.grey.withValues(alpha: 0.1))),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // 🛠️ MICROMANAGE / SAVE BUTTON
+        _buildActionGlassButton(
+          onTap: () {
+            if (_isEditing) {
+              _saveChanges();
+            } else {
+              setState(() => _isEditing = true);
+            }
+          },
+          isDark: isDark,
+          child: Row(
+            children: [
+              Icon(
+                _isEditing ? Icons.check_circle_outline : Icons.auto_fix_high_outlined,
+                size: 18,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                _isEditing ? "SAVE UPDATES" : "MICROMANAGE",
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+
+        // 🚀 ACTION SIDE (ADD or DELETE)
+        widget.isPreview
+            ? _buildActionGlassButton(
+                onTap: widget.onConfirm!,
+                isDark: isDark,
+                isHighlight: true,
+                child: const Text(
+                  "ADD TASK",
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                ),
+              )
+            : ClipRRect(
+                // 🔥 UPGRADED: Glassmorphic Delete Button
+                borderRadius: BorderRadius.circular(12),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.redAccent.withValues(alpha: 0.15)),
+                    ),
+                    child: IconButton(
+                      onPressed: widget.onDelete,
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Colors.redAccent,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+      ],
+    ),
+  );
+}
+
+  Widget _buildActionGlassButton({required VoidCallback onTap, required Widget child, required bool isDark, bool isHighlight = false}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              color: isHighlight 
+                ? (isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.1))
+                : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03)),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)),
+            ),
+            child: child,
+          ),
+        ),
       ),
     );
+  }
+
+  // --- SUB-ELEMENTS (Logic Preserved) ---
+
+  Widget _buildGlassTag(String label, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: color, letterSpacing: 1.2)),
+    );
+  }
+
+ Widget _buildTitle() {
+  return _isEditing
+      ? Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          decoration: ShapeDecoration(
+            // 🔥 FIX: Move 'side' inside StadiumBorder and remove 'const'
+            shape: StadiumBorder(
+              side: BorderSide(color: Colors.grey.withValues(alpha: 0.1)),
+            ),
+            color: Theme.of(context).brightness == Brightness.dark 
+                ? Colors.white.withValues(alpha: 0.05) 
+                : Colors.black.withValues(alpha: 0.03),
+          ),
+          child: TextField(
+            controller: _titleController,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            maxLines: 1,
+            decoration: const InputDecoration(
+              hintText: "Enter Goal...",
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        )
+      : Text(
+          widget.task.title, 
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, height: 1.2)
+        );
+}
+
+  Widget _buildNotes(bool isDark) {
+    if (!_isEditing && widget.task.description.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("CONTEXT", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey[400], letterSpacing: 1.2)),
+        const SizedBox(height: 8),
+        _isEditing 
+          ? TextField(controller: _descController, maxLines: null, decoration: const InputDecoration(border: InputBorder.none, hintText: "Add intel..."))
+          : Text(widget.task.description, style: TextStyle(fontSize: 14, height: 1.5, color: isDark ? Colors.white70 : Colors.black87)),
+      ],
+    );
+  }
+  Widget _buildBiggerSelector({
+  required String title,
+  required List<String> options,
+  required String current,
+  required Function(String) onSelect,
+  required Color theme,
+  required bool isDark,
+  bool isSlider = false, // 🔥 NEW FLAG
+}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.grey[500], letterSpacing: 1.5)),
+      const SizedBox(height: 12),
+      if (isSlider)
+        _buildTactileSlider(theme, isDark) // 🔥 CUSTOM SLIDER
+      else
+        Row(
+          children: options.map((opt) {
+            bool isSel = current == opt;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () => onSelect(opt),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  height: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isSel ? (isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05)) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: isSel ? theme.withValues(alpha: 0.4) : Colors.grey.withValues(alpha: 0.1)),
+                  ),
+                  child: Text(
+                    opt, 
+                    style: TextStyle(
+                      fontSize: 12, 
+                      fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                      color: isSel ? (isDark ? Colors.white : Colors.black87) : Colors.grey
+                    )
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+    ],
+  );
+}
+// --- 🧊 STANDARD MODE: Fixed Header/Footer ---
+Widget _buildStandardLayout(Color themeColor, bool isDark) {
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _buildHeader(themeColor, isDark),
+      Flexible(
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              controller: _scrollController,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _buildBodyContent(themeColor, isDark),
+            ),
+            if (_showScrollArrow) 
+              Positioned(bottom: 10, left: 0, right: 0, child: Icon(Icons.keyboard_arrow_down_rounded, color: themeColor.withValues(alpha: 0.3), size: 30)),
+          ],
+        ),
+      ),
+      _buildFooter(themeColor, isDark),
+    ],
+  );
+}
+
+// --- 🔥 MICROMANAGE MODE: Everything Scrolls Together ---
+Widget _buildMicromanageLayout(Color themeColor, bool isDark) {
+  return SingleChildScrollView(
+    physics: const BouncingScrollPhysics(),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildHeader(themeColor, isDark),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: _buildBodyContent(themeColor, isDark),
+        ),
+        _buildFooter(themeColor, isDark),
+        // Ensure the Save button can scroll above the keyboard
+        SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 ? 20 : 0),
+      ],
+    ),
+  );
+}
+
+// --- 🥩 THE CONTENT: Reusable body logic ---
+Widget _buildBodyContent(Color themeColor, bool isDark) {
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const SizedBox(height: 12),
+      _buildTitle(),
+      const SizedBox(height: 18),
+      _buildGlassMetadataRow(themeColor, isDark),
+      const SizedBox(height: 24),
+      _buildNotes(isDark),
+      const SizedBox(height: 28),
+      _buildRoadmap(themeColor, isDark),
+      const SizedBox(height: 30),
+    ],
+  );
+}
+
+  Widget _buildRoadmap(Color theme, bool isDark) {
+    if (!_isEditing && _localSubtasks.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text("ROADMAP", style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: theme.withValues(alpha: 0.6), letterSpacing: 1.5)),
+        const SizedBox(height: 12),
+        ..._localSubtasks.asMap().entries.map((e) => Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Row(
+            children: [
+              if (_isEditing)
+                GestureDetector(onTap: () => setState(() => _localSubtasks.removeAt(e.key)), child: const Icon(Icons.remove_circle_outline_rounded, color: Colors.redAccent, size: 22))
+              else
+                SizedBox(width: 24, height: 24, child: Checkbox(value: e.value.isCompleted, onChanged: (_) => widget.onSubtaskToggle(e.value.id), activeColor: theme, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)))),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _isEditing
+                  ? TextField(controller: _subtaskControllers.putIfAbsent(e.value.id, () => TextEditingController(text: e.value.title)), style: const TextStyle(fontSize: 15), maxLines: null, decoration: const InputDecoration(isDense: true, border: InputBorder.none))
+                  : Text(e.value.title, style: TextStyle(fontSize: 15, color: e.value.isCompleted ? Colors.grey : (isDark ? Colors.white : Colors.black87))),
+              ),
+            ],
+          ),
+        )),
+        if (_isEditing) TextField(controller: _newSubtaskController, decoration: InputDecoration(hintText: "Add milestone...", prefixIcon: Icon(Icons.add_rounded, size: 20, color: theme), border: InputBorder.none), onSubmitted: (v) { if(v.isNotEmpty) { setState(() { _localSubtasks.add(SubTask(id: const Uuid().v4(), title: v, isCompleted: false)); _newSubtaskController.clear(); }); } }),
+      ],
+    );
+  }
+
+  Color _getThemeColor(String theme) {
+    switch (theme.toLowerCase()) {
+      case 'emerald': return const Color(0xFF047857);
+      case 'rose':    return const Color(0xFFBE123C);
+      case 'cyan':    return const Color(0xFF0E7490);
+      default:        return const Color(0xFF4338CA);
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(context: context, initialDate: _selectedDate ?? DateTime.now(), firstDate: DateTime(2025), lastDate: DateTime(2030));
+    if (d != null) setState(() => _selectedDate = d);
+  }
+
+  Future<void> _pickTime() async {
+    final t = await showTimePicker(context: context, initialTime: _selectedTime ?? TimeOfDay.now());
+    if (t != null) setState(() => _selectedTime = t);
   }
 }

@@ -169,6 +169,13 @@ Future<void> requestAccountDeletion() async {
     rethrow;
   }
 }
+Future<void> syncToSpecificCollection({required String collection, required Map<String, dynamic> data}) async {
+  final user = _auth.currentUser;
+  if (user == null) return;
+
+  // This hits whatever cabinet 'saveData' tells it to hit
+  await _db.collection(collection).doc(user.uid).set(data, SetOptions(merge: false));
+}
 Future<void> abortAccountDeletion() async {
   final User? user = _auth.currentUser;
   if (user == null) return;

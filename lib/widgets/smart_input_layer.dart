@@ -23,6 +23,8 @@ class SmartInputLayer extends StatefulWidget {
   final bool isVisible;
   final bool isAiLoading;
   final bool isDeletionPending; // 👈 ADD THIS
+  final Function(DragUpdateDetails) onProxyItemDrag;
+  
   const SmartInputLayer({
     super.key, 
     required this.allTasks,
@@ -30,6 +32,7 @@ class SmartInputLayer extends StatefulWidget {
     this.isVisible = false,
     required this.isAiLoading,
     required this.isDeletionPending, // 👈 ADD THIS
+    required this.onProxyItemDrag, // 🔥 Add this
   });
 
   
@@ -43,6 +46,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   final stt.SpeechToText _speech = stt.SpeechToText();
   final AudioRecorder _audioRecorder = AudioRecorder(); 
   final FocusNode _focusNode = FocusNode();
+  final ScrollController _hudScrollController = ScrollController(); // 🔥 Dedicated HUD Controller
  
   
   
@@ -50,7 +54,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
   bool _isListening = false;
   bool _isInputActive = false;
   bool _showHint = true;
-  bool _showSlogan = true; // S.INC Brand state
+  
   
 
   late AnimationController _pulseController;
@@ -63,9 +67,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
       if (mounted) setState(() => _showHint = false);
     });
 
-    Timer(const Duration(seconds: 4), () {
-    if (mounted) setState(() => _showSlogan = false);
-  });
+   
 
     _pulseController = AnimationController(
       vsync: this,
@@ -115,6 +117,7 @@ class SmartInputLayerState extends State<SmartInputLayer> with TickerProviderSta
     _textController.dispose();
     _pulseController.dispose();
     _focusNode.dispose();
+    _hudScrollController.dispose(); // Clean up
     super.dispose();
   }
 
@@ -255,6 +258,7 @@ void _closeInputMode() {
     final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
     final todayTasks = _getTodayTasks(widget.allTasks);
     final settings = Provider.of<SettingsService>(context); 
+    final bool isKeyboardOpen = keyboardHeight > 0;
 
   
 
@@ -284,62 +288,61 @@ if (settings.isHudEnabled)
               children: [
                 // TASK AT-A-GLANCE
                 SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.30,
-                  child: GestureDetector(
-                    onHorizontalDragStart: (_) {},
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      child: Column(
-                        children: [
-                          if (todayTasks.isNotEmpty) ...[
-                            Text(
-                              "TODAY",
-                              style: TextStyle(
-                                fontSize: 10, fontWeight: FontWeight.w300, letterSpacing: 5.0,
-                                color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.15),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            ...todayTasks.map((task) => Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 40),
-                                  child: Text(
-                                    task.title.toLowerCase(),
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 22, fontWeight: FontWeight.w200, letterSpacing: 1.2,
-                                      color: isDarkMode ? Colors.white.withValues(alpha: 0.4) : Colors.black.withValues(alpha: 0.25),
-                                    ),
-                                  ),
-                                )),
-                          ] else const SizedBox(height: 50),
-                        ],
-                      ),
+  height: MediaQuery.of(context).size.height * 0.35,
+  child: Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (todayTasks.isNotEmpty) ...[
+        // 1. HUD HEADER
+        Text(
+          "TODAY",
+          style: TextStyle(
+            fontSize: 10, fontWeight: FontWeight.w300, letterSpacing: 5.0,
+            color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.15),
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // 🔥 THE MASTER FIX: Wrap the task list in IgnorePointer
+        // This makes the text "physically transparent" to all gestures.
+        IgnorePointer(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...todayTasks.take(3).map((task) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 40),
+                child: Text(
+                  task.title.toLowerCase(),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w200, letterSpacing: 1.2,
+                    color: isDarkMode ? Colors.white.withValues(alpha: 0.4) : Colors.black.withValues(alpha: 0.25),
+                  ),
+                ),
+              )),
+              
+              if (todayTasks.length > 3)
+                Padding(
+                  padding: const EdgeInsets.only(top: 15),
+                  child: Text(
+                    "you have more, click calendar button",
+                    style: TextStyle(
+                      fontSize: 11, 
+                      fontWeight: FontWeight.w400,
+                      fontStyle: FontStyle.normal,
+                      color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.2),
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ),
-
-                // THE GAP
-                AnimatedOpacity(
-                  opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 800),
-                  child: const SizedBox(height: 40),
-                ),
-
-                // THE SLOGAN
-                AnimatedOpacity(
-                  opacity: (_showSlogan && !_isInputActive) ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 800),
-                  child: _showSlogan
-                      ? Text(
-                          "let's procrastinate in style",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.w300, letterSpacing: 2.5,
-                            color: isDarkMode ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.12),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
+            ],
+          ),
+        ),
+      ] else const SizedBox(height: 50),
+    ],
+  ),
+),
+                
               ],
             ),
           ),
@@ -475,10 +478,10 @@ if (_isInputActive)
         // --- 4. THE UI STACK (Inside build method) ---
 // ✨ THE INTELLIGENCE SWITCH (Island 1)
          AnimatedPositioned(
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeOutCubic,
+  duration: const Duration(milliseconds: 200), // Slightly longer for a 'layered' feel
+  curve: Curves.easeOutCubic,
             // 🔥 Position 0 keeps it out of the way of your swipe cards when hidden
-            bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 200 : 335) : 0,
+            bottom: _isInputActive ? (isKeyboardOpen ? keyboardHeight + 200 : 335) : 0,
             left: 24, 
             child: IgnorePointer(
           ignoring: !_isInputActive || widget.isDeletionPending,
@@ -496,7 +499,13 @@ if (_isInputActive)
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(20),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      // 🔥 THE 60FPS SECRET:
+// When the keyboard is moving (isKeyboardOpen), we drop the blur to 4.
+// It still looks glassy, but saves the GPU 60% of the math work.
+filter: ImageFilter.blur(
+  sigmaX: isKeyboardOpen ? 4 : 12, 
+  sigmaY: isKeyboardOpen ? 4 : 12
+),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -541,10 +550,16 @@ if (_isInputActive)
 
         // 📥 THE INPUT BOX (Island 2)
         AnimatedPositioned(
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeOutCubic,
+  // 🔥 THE FLUID SECRET: 
+  // 150ms is shorter than the keyboard's own 300ms rise.
+  // This creates a 'Trailing Elastic' feel without feeling laggy.
+  duration: const Duration(milliseconds: 150), 
+  
+  // easeOutCubic starts fast and slows down gently at the end.
+  // This makes the box 'settle' into position.
+  curve: Curves.easeOutCubic,
             // 🔥 Moving to bottom 0 ensures no "ghost touches" in the middle of the screen
-            bottom: _isInputActive ? (keyboardHeight > 0 ? keyboardHeight + 20 : 150) : 0,
+            bottom: _isInputActive ? (isKeyboardOpen ? keyboardHeight + 20 : 150) : 0,
             left: 24, right: 24,
             child: IgnorePointer( // 🔥 MOVE THE GUARD HERE
     ignoring: !_isInputActive,

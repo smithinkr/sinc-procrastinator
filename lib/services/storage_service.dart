@@ -34,6 +34,15 @@ class StorageService {
     // Default to true so new users see the HUD immediately
     return prefs.getBool('show_hud') ?? true; 
   }
+  static Future<void> saveBool(String key, bool value) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool(key, value);
+}
+
+static Future<bool?> getBool(String key) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool(key);
+}
 
   static Future<void> setHudEnabled(bool visible) async {
     final prefs = await SharedPreferences.getInstance();

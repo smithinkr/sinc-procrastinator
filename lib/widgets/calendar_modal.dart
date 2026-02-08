@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../models/task_model.dart';
+import '../services/settings_service.dart';
+import 'package:provider/provider.dart';
 
 class CalendarModal extends StatefulWidget {
   final List<Task> tasks;
@@ -84,58 +86,65 @@ void didUpdateWidget(covariant CalendarModal oldWidget) {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    @override
+Widget build(BuildContext context) {
+  final bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+  final themeColor = _getThemeColor(Provider.of<SettingsService>(context, listen: false).themeColor);
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
-        children: [
-          GestureDetector(
-            onTap: _closeWithUnfocus,
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(color: Colors.black.withValues(alpha: 0.2)),
-            ),
+  return Scaffold(
+    backgroundColor: Colors.transparent,
+    body: Stack(
+      children: [
+        // 1. DIMMER BACKGROUND
+        GestureDetector(
+          onTap: _closeWithUnfocus,
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(color: Colors.black.withValues(alpha: 0.2)),
           ),
-          Center(
-            child: Container(
-              width: MediaQuery.of(context).size.width * 0.9,
-              height: MediaQuery.of(context).size.height * 0.80, 
-              decoration: BoxDecoration(
-                color: isDarkMode 
-                    ? Colors.black.withValues(alpha: 0.85) 
-                    : Colors.white.withValues(alpha: 0.95),
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 1.5),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 30, offset: const Offset(0, 10))
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(30),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20.0),
+        ),
+
+        // 2. THE MODAL CARD
+        Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: MediaQuery.of(context).size.width * 0.92,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
+            decoration: BoxDecoration(
+              color: isDarkMode 
+                  ? Colors.black.withValues(alpha: 0.85) 
+                  : Colors.white.withValues(alpha: 0.95),
+              borderRadius: BorderRadius.circular(32),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1.5),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 30, offset: const Offset(0, 10))
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // --- FIXED HEADER ---
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                   child: Column(
                     children: [
-                      // --- HEADER ---
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           if (_viewMode == 0) ...[
-                             IconButton(
+                            IconButton(
                               icon: Icon(Icons.chevron_left, color: isDarkMode ? Colors.white : Colors.black87),
                               onPressed: () => _jumpMonth(-1),
                             ),
                             GestureDetector(
-                              onTap: _jumpToToday, // Tap title to reset
+                              onTap: _jumpToToday,
                               child: Text(
                                 "${_getMonthName(_focusedDay.month)} ${_focusedDay.year}",
                                 style: TextStyle(
-                                  fontSize: 20, 
-                                  fontWeight: FontWeight.bold,
-                                  color: isDarkMode ? Colors.white : Colors.black87
+                                  fontSize: 20, fontWeight: FontWeight.bold,
+                                  color: isDarkMode ? Colors.white : Colors.black87,
                                 ),
                               ),
                             ),
@@ -144,20 +153,17 @@ void didUpdateWidget(covariant CalendarModal oldWidget) {
                               onPressed: () => _jumpMonth(1),
                             ),
                           ] else 
-                              Text(
-                               "Timeline",
-                               style: TextStyle(
-                                 fontSize: 22, 
-                                 fontWeight: FontWeight.bold,
-                                 color: isDarkMode ? Colors.white : Colors.black87
-                               ),
+                            Text(
+                              "Timeline",
+                              style: TextStyle(
+                                fontSize: 22, fontWeight: FontWeight.bold,
+                                color: isDarkMode ? Colors.white : Colors.black87,
                               ),
+                            ),
                         ],
                       ),
-                      
                       const SizedBox(height: 10),
-
-                      // --- TOGGLE PILL ---
+                      // --- FIXED TOGGLE PILL ---
                       Container(
                         height: 38,
                         width: double.infinity, 
@@ -168,171 +174,199 @@ void didUpdateWidget(covariant CalendarModal oldWidget) {
                         ),
                         child: Row(
                           children: [
-                            Expanded(child: _buildToggleButton(0, "Calendar", isDarkMode)),
+                            Expanded(child: _buildToggleButton(0, "Calendar", isDarkMode, themeColor)),
                             const SizedBox(width: 4),
-                            Expanded(child: _buildToggleButton(1, "Timeline", isDarkMode)),
+                            Expanded(child: _buildToggleButton(1, "Timeline", isDarkMode, themeColor)),
                           ],
                         ),
                       ),
-
-                      const SizedBox(height: 20),
-
-                      // --- CONTENT ---
-                      _viewMode == 0 
-                          ? _buildSwipeableCalendar(isDarkMode)
-                          : _buildTimelineView(isDarkMode),
-
-                      const SizedBox(height: 20),
-                      
-                      // --- TODAY BUTTON (Only shown if scrolled away) ---
-                      if (_viewMode == 0 && (_focusedDay.month != DateTime.now().month || _focusedDay.year != DateTime.now().year))
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: TextButton.icon(
-                            onPressed: _jumpToToday,
-                            icon: const Icon(Icons.today, size: 18),
-                            label: const Text("Back to Today"),
-                            style: TextButton.styleFrom(foregroundColor: Colors.indigo),
-                          ),
-                        ),
-
-                      // --- CLOSE BUTTON ---
-                      GestureDetector(
-                        onTap: _closeWithUnfocus,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          child: Text("Close", style: TextStyle(fontWeight: FontWeight.bold, color: isDarkMode ? Colors.white70 : Colors.black54)),
-                        ),
-                      )
                     ],
                   ),
                 ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  // --- WIDGET BUILDERS ---
+                const SizedBox(height: 10),
 
-  Widget _buildToggleButton(int mode, String label, bool isDark) {
-    bool isActive = _viewMode == mode;
-    return GestureDetector(
-      onTap: () => setState(() => _viewMode = mode),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isActive ? (isDark ? Colors.white : Colors.indigo) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: isActive ? (isDark ? Colors.black : Colors.white) : (isDark ? Colors.white54 : Colors.black45),
-          ),
-        ),
-      ),
-    );
-  }
+                // 3. 🔥 THE UNIFIED SCROLL AREA
+                Flexible(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 10),
+                        // THE DYNAMIC CONTENT
+                        _viewMode == 0 
+                            ? _buildSwipeableCalendar(isDarkMode, themeColor)
+                            : _buildTimelineView(isDarkMode),
 
-  Widget _buildSwipeableCalendar(bool isDark) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: ["S", "M", "T", "W", "T", "F", "S"].map((d) => 
-            Text(d, style: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontWeight: FontWeight.bold))
-          ).toList(),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 240, 
-          child: PageView.builder(
-            controller: _pageController,
-            onPageChanged: _onPageChanged,
-            itemBuilder: (context, index) {
-              int diff = index - _initialPage;
-              DateTime now = DateTime.now();
-              DateTime monthTime = DateTime(now.year, now.month + diff, 1);
-              return _buildMonthGrid(monthTime, isDark);
-            },
-          ),
-        ),
-        const Divider(),
-        _selectedDate == null 
-            ? Padding(
-                padding: const EdgeInsets.all(20), 
-                child: Text("Select a date", style: TextStyle(color: isDark ? Colors.white24 : Colors.black26))
-              )
-            : _buildSelectedDayTasks(isDark),
-      ],
-    );
-  }
+                        const SizedBox(height: 10),
 
-  Widget _buildMonthGrid(DateTime monthTime, bool isDark) {
-    final daysInMonth = DateUtils.getDaysInMonth(monthTime.year, monthTime.month);
-    final firstDayOffset = DateTime(monthTime.year, monthTime.month, 1).weekday % 7;
-    
-    return GridView.builder(
-      physics: const NeverScrollableScrollPhysics(), 
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 7),
-      itemCount: daysInMonth + firstDayOffset,
-      itemBuilder: (context, index) {
-        if (index < firstDayOffset) return const SizedBox.shrink();
-        
-        final dayNum = index - firstDayOffset + 1;
-        final currentDayDate = DateTime(monthTime.year, monthTime.month, dayNum);
-        bool hasTask = widget.tasks.any((t) => _isTaskOnDate(t, currentDayDate));
-        bool isSelected = _selectedDate != null && 
-                          _selectedDate!.day == dayNum && 
-                          _selectedDate!.month == monthTime.month &&
-                          _selectedDate!.year == monthTime.year;
-
-        return GestureDetector(
-          onTap: () => setState(() => _selectedDate = currentDayDate),
-          child: Container(
-            margin: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: isSelected 
-                  ? Colors.indigo 
-                  : (hasTask ? Colors.indigo.withValues(alpha: 0.15) : Colors.transparent),
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  "$dayNum",
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
-                    fontWeight: (isSelected || hasTask) ? FontWeight.bold : FontWeight.normal
+                        // TODAY BUTTON (Inside Scroll)
+                        if (_viewMode == 0 && (_focusedDay.month != DateTime.now().month || _focusedDay.year != DateTime.now().year))
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 20),
+                            child: TextButton.icon(
+                              onPressed: _jumpToToday,
+                              icon: Icon(Icons.today, size: 18, color: themeColor),
+                              label: Text("Back to Today", style: TextStyle(color: themeColor)),
+                              style: TextButton.styleFrom(
+                                backgroundColor: themeColor.withValues(alpha: 0.1),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-                if (hasTask && !isSelected)
-                  Container(
-                    margin: const EdgeInsets.only(top: 2),
-                    width: 4, height: 4,
-                    decoration: const BoxDecoration(color: Colors.indigo, shape: BoxShape.circle),
-                  )
+
+                // --- FIXED CLOSE BUTTON ---
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: GestureDetector(
+                    onTap: _closeWithUnfocus,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: isDarkMode ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Text(
+                        "Close", 
+                        style: TextStyle(fontWeight: FontWeight.bold, color: isDarkMode ? Colors.white70 : Colors.black54),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-        );
-      },
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
+
+  // --- WIDGET BUILDERS ---
+
+  Widget _buildToggleButton(int mode, String label, bool isDark, Color theme) {
+  bool isActive = _viewMode == mode;
+  return GestureDetector(
+    onTap: () => setState(() => _viewMode = mode),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        // 🔥 FIX: Use 'theme' variable instead of themeColor or indigo
+        color: isActive ? (isDark ? Colors.white : theme) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: isActive ? (isDark ? Colors.black : Colors.white) : (isDark ? Colors.white54 : Colors.black45),
+        ),
+      ),
+    ),
+  );
+}
+
+  // 🔥 FIX: Added 'Color theme' here
+Widget _buildSwipeableCalendar(bool isDark, Color theme) {
+  return Column(
+    children: [
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: ["S", "M", "T", "W", "T", "F", "S"].map((d) => 
+          Text(d, style: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontWeight: FontWeight.bold))
+        ).toList(),
+      ),
+      const SizedBox(height: 10),
+      SizedBox(
+        height: 240, 
+        child: PageView.builder(
+          controller: _pageController,
+          onPageChanged: _onPageChanged,
+          itemBuilder: (context, index) {
+            int diff = index - _initialPage;
+            DateTime now = DateTime.now();
+            DateTime monthTime = DateTime(now.year, now.month + diff, 1);
+            // 🔥 FIX: Pass 'theme' down to the grid
+            return _buildMonthGrid(monthTime, isDark, theme); 
+          },
+        ),
+      ),
+      const Divider(),
+      _selectedDate == null 
+          ? Padding(
+              padding: const EdgeInsets.all(20), 
+              child: Text("Select a date", style: TextStyle(color: isDark ? Colors.white24 : Colors.black26))
+            )
+          : _buildSelectedDayTasks(isDark),
+    ],
+  );
+}
+
+  // 🔥 FIX: Added 'Color theme' here
+Widget _buildMonthGrid(DateTime monthTime, bool isDark, Color theme) {
+  final daysInMonth = DateUtils.getDaysInMonth(monthTime.year, monthTime.month);
+  final firstDayOffset = DateTime(monthTime.year, monthTime.month, 1).weekday % 7;
+  
+  return GridView.builder(
+    physics: const NeverScrollableScrollPhysics(), 
+    padding: EdgeInsets.zero,
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 7),
+    itemCount: daysInMonth + firstDayOffset,
+    itemBuilder: (context, index) {
+      if (index < firstDayOffset) return const SizedBox.shrink();
+      
+      final dayNum = index - firstDayOffset + 1;
+      final currentDayDate = DateTime(monthTime.year, monthTime.month, dayNum);
+      bool hasTask = widget.tasks.any((t) => _isTaskOnDate(t, currentDayDate));
+      bool isSelected = _selectedDate != null && 
+                        _selectedDate!.day == dayNum && 
+                        _selectedDate!.month == monthTime.month &&
+                        _selectedDate!.year == monthTime.year;
+
+      return GestureDetector(
+        onTap: () => setState(() => _selectedDate = currentDayDate),
+        child: Container(
+          margin: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            // 🔥 FIX: Use 'theme' variable here
+            color: isSelected 
+                ? theme 
+                : (hasTask ? theme.withValues(alpha: 0.15) : Colors.transparent),
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                "$dayNum",
+                style: TextStyle(
+                  color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                  fontWeight: (isSelected || hasTask) ? FontWeight.bold : FontWeight.normal
+                ),
+              ),
+              if (hasTask && !isSelected)
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  width: 4, height: 4,
+                  // 🔥 FIX: Changed from constant Colors.indigo to dynamic theme
+                  decoration: BoxDecoration(color: theme, shape: BoxShape.circle), 
+                )
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildSelectedDayTasks(bool isDark) {
     final dayTasks = widget.tasks.where((t) => _isTaskOnDate(t, _selectedDate!)).toList();
@@ -474,4 +508,13 @@ void didUpdateWidget(covariant CalendarModal oldWidget) {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return months[(month - 1) % 12];
   }
+  // 🔥 FIX 1: Add this method to your class
+Color _getThemeColor(String theme) {
+  switch (theme.toLowerCase()) {
+    case 'emerald': return const Color(0xFF047857);
+    case 'rose':    return const Color(0xFFBE123C);
+    case 'cyan':    return const Color(0xFF0E7490);
+    default:        return const Color(0xFF4338CA); 
+  }
+}
 }

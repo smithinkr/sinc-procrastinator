@@ -64,10 +64,13 @@
       int _aiCooldownSeconds = 0;
       Timer? _cooldownTimer;
       Timer? _deleteDebounceTimer;
+      late AnimationController _overshootController;
+late Animation<double> _overshootAnimation;
+String? _tempHighlightCategory; // To tell the ribbon which one to "elongate"
       
       
 
-      double _drawerDragOffset = 0.0;
+     final ValueNotifier<double> _drawerOffsetNotifier = ValueNotifier<double>(0.0);
       final double _maxDrawerWidth = 140.0;
       String _selectedCategory = 'All';
       String? _currentUid; // Track the current user ID
@@ -124,16 +127,48 @@
       void initState() {
         super.initState();
         
+        _overshootController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500), // Total sequence time
+  );
+
+  _overshootAnimation = TweenSequence<double>([
+  // 1. THE REVEAL (Slower): Let the user see it happening
+  TweenSequenceItem(
+    tween: Tween(begin: 0.0, end: 120.0) // Increased from 90 to 120 for "Full Reveal"
+        .chain(CurveTween(curve: Curves.easeOutCubic)),
+    weight: 30, 
+  ),
+  // 2. THE PLATEAU (Longer): 600ms is the magic number for reading
+  TweenSequenceItem(
+    tween: ConstantTween<double>(120.0),
+    weight: 45, 
+  ),
+  // 3. THE COLLAPSE (Snap): High-energy return
+  TweenSequenceItem(
+    tween: Tween(begin: 120.0, end: 0.0)
+        .chain(CurveTween(curve: Curves.elasticIn)),
+    weight: 25,
+  ),
+]).animate(_overshootController)
+    ..addListener(() {
+      _drawerOffsetNotifier.value = _overshootAnimation.value;
+    });
         // START AUDITORS
         WidgetsBinding.instance.addObserver(this); // Lifecycle Auditor
         // 2. 🔥 THE INSTANT-LOGIN INJECTION
-    // We populate our UI state IMMEDIATELY from the 'Auth Hint' passed from main.dart
-    if (widget.startLoggedIn) {
-      _isCloudSynced = true; // This triggers your Blue Ring
-      _userInitial = widget.userInitial; // This sets the letter
-      _userPhotoUrl = widget.userPhotoUrl; // <--- ASSIGN IT HERE
-      L.d("☁️ S.INC: Instant-Login active for: ${widget.userInitial}");
-    }
+   // 2. 🔥 THE UNIVERSAL TRIGGER
+  // We no longer wait for Firebase. We engage the vault for whoever is here NOW.
+  if (widget.startLoggedIn) {
+    _isCloudSynced = true; 
+    _userInitial = widget.userInitial; 
+    _userPhotoUrl = widget.userPhotoUrl; 
+    L.d("☁️ S.INC: Instant-Login active. Engaging User Vault...");
+    _loadData(); 
+  } else {
+    L.d("💾 S.INC: Offline Entry. Engaging Guest Vault...");
+    _loadData(); // 👈 FIX: This ensures Guests get their seed tasks!
+  }
         
         _authListener = FirebaseAuth.instance.authStateChanges().listen((user) {
     if (mounted) {
@@ -173,18 +208,20 @@
         _pageController.addListener(_handlePageScroll);
       }
 
-      void _handlePageScroll() {
-        if (!mounted) return;
-        double page = _pageController.page ?? 1.0;
-        if (page > 0.9 && page < 1.1) {
-          if (_selectedCategory != 'All' || _drawerDragOffset > 0) {
-            setState(() {
-              _selectedCategory = 'All'; 
-              _drawerDragOffset = 0.0; 
-            });
-          }
-        }
-      }
+      // 🛠️ FIX 1: The Page Scroll Reset
+void _handlePageScroll() {
+  if (!mounted) return;
+  double page = _pageController.page ?? 1.0;
+  if (page > 0.9 && page < 1.1) {
+    // We check .value instead of the old variable
+    if (_selectedCategory != 'All' || _drawerOffsetNotifier.value > 0) {
+      setState(() {
+        _selectedCategory = 'All'; 
+      });
+      _drawerOffsetNotifier.value = 0.0; // Physically close the ribbons
+    }
+  }
+}
 
       void _checkWidgetLaunch() {
         HomeWidget.initiallyLaunchedFromHomeWidget().then(_handleWidgetClick);
@@ -220,63 +257,114 @@
       }
 
         Future<void> _loadData() async {
-    List<Task> mergedTasks = [];
-    
+  List<Task> mergedTasks = [];
 
-    // 1. PHASE ONE: Load from the local "Hardware Vault"
-    try {
-      final localTasks = await StorageService.loadTasks(_currentUid);
-      if (localTasks.isNotEmpty) {
-        mergedTasks = localTasks;
-        _updateUI(mergedTasks); 
-      }
-    } catch (e) {
-      L.d("🚨 LOCAL LOAD ERROR: $e");
-    }
-
-    // 2. PHASE TWO: Handshake with Firebase
-    // 🔥 THE FIX: Use our local _currentUid variable instead of fetching it again
-    if (_currentUid == null) {
-      L.d("💾 S.INC: Guest Mode active. Skipping cloud handshake.");
-      _updateUI(mergedTasks);
-      return; // Exit early if not logged in
-    }
-
-    try {
-      L.d("☁️ S.INC: Identity Verified for ID: $_currentUid. Fetching Cloud Ledger...");
-      
-      // We can now safely call fetchTasksFromCloud() knowing we are authenticated
-      final cloudTasks = await SyncService().fetchTasksFromCloud();
-      
-      if (cloudTasks.isNotEmpty) {
-        final localIds = mergedTasks.map((t) => t.id).toSet();
-        final newFromCloud = cloudTasks.where((t) => !localIds.contains(t.id)).toList();
-
-        if (newFromCloud.isNotEmpty) {
-          mergedTasks.addAll(newFromCloud);
-          mergedTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-          // 3. SECURE THE MERGE
-          await StorageService.saveTasks(mergedTasks, _currentUid);
-        }
-      }
-    } catch (e) {
-      L.d("🚨 CLOUD SYNC ERROR: $e");
-    }
-
-    // Final UI Update
-    _updateUI(mergedTasks);
+  // 1. PHASE ONE: Initial Hardware Load
+  try {
+    // We fetch whatever is currently in the local vault
+    mergedTasks = await StorageService.loadTasks(_currentUid);
+    L.d("📂 S.INC: Hardware Vault opened. Items found: ${mergedTasks.length}");
+  } catch (e) {
+    L.d("🚨 LOCAL LOAD ERROR: $e");
   }
 
-      /// Helper to refresh the UI safely
-      void _updateUI(List<Task> tasks) {
-        if (!mounted) return;
-        setState(() {
-          _tasks.clear();
-          _tasks.addAll(tasks);
-        });
+  // 2. PHASE TWO: The Seed Gate (Hardware Flag Only)
+  bool hasSeeded = await StorageService.getBool('did_seed_discovery_tasks') ?? false;
+
+  if (!hasSeeded) {
+    L.d("🌱 S.INC: fresh install detected. Deploying Dynamic Discovery Mission...");
+    
+    final now = DateTime.now();
+    
+    // ⏰ Task 1: 30 Minutes from now
+    final time1 = now.add(const Duration(minutes: 30));
+    // ⏰ Task 2: 1 Hour from now (Triggers the "Within 1 Hour" logic)
+    final time2 = now.add(const Duration(hours: 1));
+    // ⏰ Task 3: 9:00 AM Tomorrow
+    final tomorrow = now.add(const Duration(days: 1));
+    final time3 = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 9, 0);
+
+    final List<Task> discoveryTasks = [
+      Task(
+        id: "seed_001",
+        title: "Swipe me right to see Tasks",
+        category: "Personal",
+        priority: "High", // High Priority + 30 mins = Top of HUD
+        createdAt: now.millisecondsSinceEpoch,
+        dueDate: "Today",
+        exactDate: time1,
+        subtasks: [
+          SubTask(id: "st1", title: "Swipe My Tasks card to see categories", isCompleted: false),
+          SubTask(id: "st2", title: "Use AI to categorize things automatically", isCompleted: false),
+        ],
+      ),
+      Task(
+        id: "seed_002",
+        title: "Click create button for text and hold it for voice input",
+        category: "Work",
+        priority: "Medium",
+        createdAt: now.millisecondsSinceEpoch + 1,
+        dueDate: "Today",
+        exactDate: time2,
+        subtasks: [
+          SubTask(id: "st1", title: "Click for text", isCompleted: false),
+          SubTask(id: "st2", title: "Click and hold for voice", isCompleted: false),
+        ],
+      ),
+      Task(
+        id: "seed_003",
+        title: "Let's procrastinate responsibly", 
+        category: "General",
+        priority: "Low",
+        createdAt: now.millisecondsSinceEpoch + 2,
+        dueDate: "Tomorrow",
+        exactDate: time3,
+        subtasks: [
+          SubTask(id: "st1", title: "You can add subtasks", isCompleted: false),
+          SubTask(id: "st2", title: "that you will eventually just ignore", isCompleted: false),
+        ], 
+      ),
+    ];
+
+    mergedTasks.insertAll(0, discoveryTasks);
+    
+    await StorageService.saveTasks(mergedTasks, _currentUid);
+    await StorageService.saveBool('did_seed_discovery_tasks', true);
+    
+    L.d("✅ S.INC: Relative-time mission deployed.");
+  }
+
+  // 🔥 THE INSTANT REVEAL: This is the critical UI update
+  // It ensures the user sees the local/seed tasks while we wait for the cloud.
+  _updateUI(mergedTasks);
+
+  // 3. PHASE THREE: Silent Cloud Handshake
+  if (_currentUid == null) {
+    L.d("💾 S.INC: Guest Mode active. Skipping cloud handshake.");
+    return; 
+  }
+
+  try {
+    L.d("☁️ S.INC: Identity Verified. Fetching Cloud Ledger...");
+    final cloudTasks = await SyncService().fetchTasksFromCloud();
+    
+    if (cloudTasks.isNotEmpty) {
+      final localIds = mergedTasks.map((t) => t.id).toSet();
+      final newFromCloud = cloudTasks.where((t) => !localIds.contains(t.id)).toList();
+
+      if (newFromCloud.isNotEmpty) {
+        mergedTasks.addAll(newFromCloud);
+        mergedTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        
+        // Final background save and one last UI refresh to show cloud items
+        await StorageService.saveTasks(mergedTasks, _currentUid);
+        _updateUI(mergedTasks);
       }
-      
+    }
+  } catch (e) {
+    L.d("🚨 CLOUD SYNC ERROR: $e");
+  }
+}
 
   Widget _buildModalRow(IconData icon, String label, String value) {
     return Padding(
@@ -319,14 +407,18 @@
       await StorageService.saveTasks(taskSnapshot, _currentUid);
       
       // 3. CLOUD SYNC (Silent Handshake)
-      if (currentUser != null) {
-        try {
-          await SyncService().syncTasksToCloud(taskSnapshot);
-          // 🔥 NO setState here. No SnackBar here. 
-          // This prevents the "jerk" and breaks the infinite loop.
-          L.d("☁️ S.INC: Cloud Ledger Updated Silently.");
-        } catch (e) {
-          L.d("🚨 S.INC Cloud Error: $e");
+if (currentUser != null) {
+  try {
+    // 🔥 THE REVERSAL: We tell the service exactly which cabinet to use
+    // Section 4 of your rules allows full access to the 'tasks' collection.
+    await SyncService().syncToSpecificCollection(
+      collection: 'tasks', 
+      data: {'tasks': taskSnapshot.map((t) => t.toMap()).toList()}
+    );
+    
+    L.d("☁️ S.INC: Tasks successfully mirrored in the 'tasks' cabinet.");
+  } catch (e) {
+    L.d("🚨 S.INC Cloud Error: $e");
           // We only show feedback on ACTUAL errors
           if (mounted) {
             messenger?.showSnackBar(
@@ -556,8 +648,9 @@
   }
 
       void _toggleDrawer(bool open) {
-        setState(() => _drawerDragOffset = open ? _maxDrawerWidth : 0.0);
-      }
+  // Directly update the notifier for 60fps response
+  _drawerOffsetNotifier.value = open ? _maxDrawerWidth : 0.0;
+}
 
     Future<void> _addTask(dynamic input, bool useAi) async {
     // 1. INPUT VALIDATION
@@ -663,32 +756,48 @@
 
 
       void _confirmTask() {
-      if (_previewTask == null) return;
-      final settings = Provider.of<SettingsService>(context, listen: false);
-    final messenger = ScaffoldMessenger.of(context);
+  if (_previewTask == null) return;
+  
+  final settings = Provider.of<SettingsService>(context, listen: false);
+  final messenger = ScaffoldMessenger.of(context);
+  final String targetCategory = _previewTask!.category;
 
-      // 1. UI UPDATE FIRST (Instant Gratification)
-      setState(() {
-        _tasks.insert(0, _previewTask!);
-        _previewTask = null;
+  // 1. UI UPDATE: Insert task into list instantly
+  setState(() {
+    _tasks.insert(0, _previewTask!);
+    _previewTask = null;
+    
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(0, 
+        duration: const Duration(milliseconds: 400), 
+        curve: Curves.easeOutCubic
+      ).then((_) async {
+        // A short breather for the OS to finish keyboard cleanup
+        await Future.delayed(const Duration(milliseconds: 100));
         
-        // Page transition feels smoother if triggered here
-        if (_pageController.hasClients) {
-          _pageController.animateToPage(
-            0, 
-            duration: const Duration(milliseconds: 500), 
-            curve: Curves.easeInOut
-          );
-        }
-      });
+        if (!mounted) return;
 
-      // 2. BACKGROUND RECONCILIATION
-      // We call this OUTSIDE setState because it's an async process
-      _saveData(settings: settings, messenger: messenger); 
-      
-      // 3. HAPTIC FEEDBACK (The S.Inc Touch)
-      HapticFeedback.mediumImpact(); 
+        // 2. TRIGGER THE SALUTE
+        setState(() => _tempHighlightCategory = targetCategory);
+        
+        _overshootController.forward(from: 0.0).then((_) {
+          // 3. CLEANUP & HEAVY LIFTING
+          if (mounted) {
+            setState(() => _tempHighlightCategory = null);
+            
+            // 🔥 THE PERFORMANCE PIVOT:
+            // We only save data AFTER the animation is complete.
+            // This ensures the CPU is free during the motion.
+            _saveData(settings: settings, messenger: messenger); 
+            
+            // Haptic feedback feels best as the card "settles"
+            HapticFeedback.lightImpact(); 
+          }
+        });
+      });
     }
+  });
+}
 
       void _toggleTask(String id) {
         setState(() {
@@ -758,16 +867,25 @@
         });
       }
 
-      void _updateTaskContent(Task updatedTask) {
-        setState(() {
-          final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
-          if (index != -1) {
-            _tasks[index] = updatedTask;
-            _saveData();
-            _expandedTask = updatedTask; 
-          }
-        });
+     void _updateTaskContent(Task updatedTask) {
+  setState(() {
+    // 🔥 THE FIX: Check if we are updating the Preview Task (Limbo)
+    if (_previewTask != null && updatedTask.id == _previewTask!.id) {
+      _previewTask = updatedTask;
+      L.d("✨ S.INC: Preview Task updated in Limbo.");
+    } 
+    // Otherwise, update the existing task in the main list
+    else {
+      final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
+      if (index != -1) {
+        _tasks[index] = updatedTask;
+        _saveData();
+        _expandedTask = updatedTask;
+        L.d("📂 S.INC: Main Task List updated.");
       }
+    }
+  });
+}
       // --- 1. THE UNIFIED ENGINE (Surgical Handshake) ---
 
       
@@ -777,6 +895,10 @@
     final user = FirebaseAuth.instance.currentUser;
     final bool isLoggedIn = _isCloudSynced; // Use local state variable
     final String? photoUrl = _userPhotoUrl; // Use local state variable
+    final themeColor = _getThemeColor(settings.themeColor);
+  final Color contrastColor = ThemeData.estimateBrightnessForColor(themeColor) == Brightness.dark 
+      ? Colors.white 
+      : Colors.black87;
 
     showDialog(
       context: context,
@@ -816,11 +938,11 @@
                       await SyncService().signInWithGoogle();
                       if (context.mounted) Navigator.pop(context);
                     },
-                    icon: const Icon(Icons.login, size: 16),
-                    label: const Text("LOG IN"),
+                    icon:  Icon(Icons.login, size: 16, color: contrastColor),
+                    label: Text("LOG IN", style: TextStyle(color: contrastColor, fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo,
-                      foregroundColor: Colors.white,
+                      backgroundColor: themeColor, 
+                    foregroundColor: contrastColor,
                       minimumSize: const Size(double.infinity, 50),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                     ),
@@ -1053,64 +1175,94 @@
                 ),
 
                 PageView(
-                  controller: _pageController,
-                  physics: const BouncingScrollPhysics(), 
-                  children: [
-                    Stack(
-                      children: [
-                        Positioned.fill(
-                          top: topGap, bottom: bottomGap,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: SizedBox(
-                              width: _maxDrawerWidth + 60,
-                              child: CategoryRibbons(
-                                width: _drawerDragOffset,
-                                selectedCategory: _selectedCategory,
-                                onCategoryTap: (category) {
-                                  setState(() {
-                                    _selectedCategory = category == "All Tasks" ? "All" : category;
-                                    _drawerDragOffset = (_selectedCategory == 'All') ? 0.0 : _maxDrawerWidth;
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                        Transform.translate(
-                          offset: Offset(_drawerDragOffset, 0),
-                          child: GestureDetector(
-                            onHorizontalDragUpdate: (details) {
-                              if (details.delta.dx > 0 && _pageController.position.pixels <= 5) {
-                                setState(() => _drawerDragOffset = (_drawerDragOffset + details.delta.dx).clamp(0.0, _maxDrawerWidth));
-                              } else if (details.delta.dx < 0) {
-                                if (_drawerDragOffset > 0) {
-                                  setState(() => _drawerDragOffset = (_drawerDragOffset + details.delta.dx).clamp(0.0, _maxDrawerWidth));
-                                } else {
-                                  _pageController.position.jumpTo(_pageController.offset - details.delta.dx);
-                                }
-                              }
-                            },
-                            onHorizontalDragEnd: (details) {
-                              if (_drawerDragOffset > 0) {
-                                _toggleDrawer(_drawerDragOffset > _maxDrawerWidth / 2 || details.primaryVelocity! > 300);
-                              } else {
-                                final double sw = MediaQuery.of(context).size.width;
-                                _pageController.animateToPage(
-                                  (_pageController.offset > sw * 0.25 || details.primaryVelocity! < -300) ? 1 : 0,
-                                  duration: const Duration(milliseconds: 300), curve: Curves.easeOut
-                                );
-                              }
-                            },
-                            child: _buildGlassSection(context, cardTitle, activeTasks, settings, false, topGap, bottomGap),
-                          ),
-                        ),
-                      ],
+  controller: _pageController,
+  physics: const BouncingScrollPhysics(),
+  children: [
+    // --- PAGE 1: MY TASKS + RIBBONS ---
+    ValueListenableBuilder<double>(
+      valueListenable: _drawerOffsetNotifier,
+      builder: (context, dragValue, cachedCard) {
+        return Stack(
+          children: [
+            // 1. THE RIBBONS
+            Positioned.fill(
+              top: topGap, bottom: bottomGap,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: RepaintBoundary(
+                  child: SizedBox(
+                    width: _maxDrawerWidth + 60,
+                    child: CategoryRibbons(
+                      width: dragValue, 
+                      highlightCategory: _tempHighlightCategory,
+                      selectedCategory: _selectedCategory,
+                      onCategoryTap: (category) {
+                        setState(() {
+                          _selectedCategory = category == "All Tasks" ? "All" : category;
+                          _drawerOffsetNotifier.value = (_selectedCategory == 'All') ? 0.0 : _maxDrawerWidth;
+                        });
+                      },
                     ),
-                    const SizedBox.shrink(), 
-                    _buildGlassSection(context, "Completed", completedTasks, settings, true, topGap, bottomGap),
-                  ],
+                  ),
                 ),
+              ),
+            ),
+            
+            // 2. THE MOVING CARD
+            Transform.translate(
+              offset: Offset(dragValue, 0),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque, // 🔥 CRITICAL: Makes the whole card touchable
+                onHorizontalDragUpdate: (details) {
+                  if (_overshootController.isAnimating) _overshootController.stop();
+
+                  // PRIORITY 1: Ribbon Pull (Only if on Page 1)
+                  if (_pageController.offset <= 5) {
+                    double friction = 0.85;
+                    double newValue = (_drawerOffsetNotifier.value + (details.delta.dx * friction))
+                        .clamp(0.0, _maxDrawerWidth);
+
+                    if (newValue != _drawerOffsetNotifier.value) {
+                      _drawerOffsetNotifier.value = newValue;
+                    }
+                    
+                    // If we are pulling ribbons, don't let the PageView move
+                    if (_drawerOffsetNotifier.value > 0) return;
+                  }
+
+                  // PRIORITY 2: Page Navigation (If ribbons are closed)
+                  if (details.delta.dx < 0 && _drawerOffsetNotifier.value <= 0) {
+                    _pageController.position.jumpTo(_pageController.offset - details.delta.dx);
+                  }
+                },
+                onHorizontalDragEnd: (details) {
+                  // Use the dragValue from the builder to decide the snap
+                  if (dragValue > 0) {
+                    _toggleDrawer(dragValue > _maxDrawerWidth / 2 || details.primaryVelocity! > 300);
+                  } else {
+                    final double sw = MediaQuery.of(context).size.width;
+                    _pageController.animateToPage(
+                      (_pageController.offset > sw * 0.25 || details.primaryVelocity! < -300) ? 1 : 0,
+                      duration: const Duration(milliseconds: 300), curve: Curves.easeOut
+                    );
+                  }
+                },
+                child: cachedCard, 
+              ),
+            ),
+          ],
+        );
+      },
+      child: _buildGlassSection(context, cardTitle, activeTasks, settings, false, topGap, bottomGap),
+    ),
+
+    // --- PAGE 2: EMPTY/SPACER ---
+    const SizedBox.shrink(), 
+
+    // --- PAGE 3: COMPLETED ---
+    _buildGlassSection(context, "Completed", completedTasks, settings, true, topGap, bottomGap),
+  ],
+),
 
                 // --- HEADER ROW (S.INC HUD) ---
   Positioned(
@@ -1138,29 +1290,46 @@
   ),
 
                 if (!_isAiLoading && _previewTask == null)
-                  ListenableBuilder(
-                    listenable: _pageController,
-                    builder: (context, child) {
-                      double page = _pageController.hasClients ? (_pageController.page ?? 1.0) : 1.0;
-                      bool isCentered = (page > 0.9 && page < 1.1);
-                      return IgnorePointer(
-                        ignoring: !isCentered,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 250),
-                          opacity: isCentered ? 1.0 : 0.0,
-                          child: SmartInputLayer(
-      key: _smartInputKey, 
-      allTasks: _tasks, // <--- THE FIX: Add this line here
-      onTaskCreated: (input, useAi) => _addTask(input, useAi),
-      isVisible: false,
-      isAiLoading: _isAiLoading, 
-      isDeletionPending: widget.isDeletionPending,
-    ),
-                        ),
-                      );
-                    },
-                  ),
+  ListenableBuilder(
+    listenable: _pageController,
+    builder: (context, child) {
+      double page = _pageController.hasClients ? (_pageController.page ?? 1.0) : 1.0;
+      bool isCentered = (page > 0.9 && page < 1.1);
 
+      // 🔥 THE MASTER FIX: Listen to the Ribbon Drawer offset in real-time
+      return ValueListenableBuilder<double>(
+        valueListenable: _drawerOffsetNotifier,
+        builder: (context, drawerOffset, _) {
+          // The HUD ignores all touch if we aren't on the center page 
+          // OR if the ribbons are being pulled out (offset > 5px)
+          bool shouldIgnoreTouch = !isCentered || drawerOffset > 5;
+
+          return IgnorePointer(
+            ignoring: shouldIgnoreTouch,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 250),
+              // Fade the HUD out immediately as the drawer opens or page moves
+              opacity: (isCentered && drawerOffset < 10) ? 1.0 : 0.0,
+              child: SmartInputLayer(
+                key: _smartInputKey,
+                allTasks: _tasks,
+                onTaskCreated: (input, useAi) => _addTask(input, useAi),
+                isVisible: false,
+                isAiLoading: _isAiLoading,
+                isDeletionPending: widget.isDeletionPending,
+                // We keep the Proxy Wire as a secondary safety measure
+                onProxyItemDrag: (details) {
+                  if (_pageController.hasClients) {
+                    _pageController.position.jumpTo(_pageController.offset - details.delta.dx);
+                  }
+                },
+              ),
+            ),
+          );
+        },
+      );
+    },
+  ),
                 if (_isAiLoading && settings.isAiEnabled)
                   Positioned.fill(
                     child: Container(
@@ -1498,4 +1667,13 @@
         ),
       );
     }
+    /// Helper to refresh the UI safely
+  void _updateUI(List<Task> tasks) {
+    if (!mounted) return;
+    setState(() {
+      _tasks.clear();
+      _tasks.addAll(tasks);
+    });
+    L.d("✅ S.INC: UI Hydrated with ${tasks.length} tasks.");
+  }
     }
